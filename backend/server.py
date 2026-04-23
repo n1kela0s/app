@@ -1,72 +1,321 @@
-from fastapi import FastAPI, APIRouter
+from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, WebSocket, WebSocketDisconnect, Query, Header, Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import random
+import string
+import json
+import asyncio
+import requests
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
 import uuid
 from datetime import datetime, timezone
-
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
 app = FastAPI()
-
-# Create a router with the /api prefix
 api_router = APIRouter(prefix="/api")
 
+# ------------- Object Storage helpers -------------
+STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
+APP_NAME = "proietta"
+storage_key: Optional[str] = None
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
+def init_storage():
+    global storage_key
+    if storage_key:
+        return storage_key
+    if not EMERGENT_KEY:
+        raise RuntimeError("EMERGENT_LLM_KEY missing")
+    resp = requests.post(f"{STORAGE_URL}/init", json={"emergent_key": EMERGENT_KEY}, timeout=30)
+    resp.raise_for_status()
+    storage_key = resp.json()["storage_key"]
+    return storage_key
 
-# Add your routes to the router instead of directly to app
+
+def put_object(path: str, data: bytes, content_type: str) -> dict:
+    key = init_storage()
+    resp = requests.put(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key, "Content-Type": content_type},
+        data=data, timeout=120,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def get_object(path: str):
+    key = init_storage()
+    resp = requests.get(
+        f"{STORAGE_URL}/objects/{path}",
+        headers={"X-Storage-Key": key}, timeout=60,
+    )
+    resp.raise_for_status()
+    return resp.content, resp.headers.get("Content-Type", "application/octet-stream")
+
+
+# ------------- Models -------------
+class Room(BaseModel):
+    id: str
+    code: str
+    master_token: str
+    created_at: str
+    active: bool = True
+
+
+class Player(BaseModel):
+    id: str
+    room_code: str
+    name: str
+    joined_at: str
+    online: bool = True
+
+
+class ImageMessage(BaseModel):
+    id: str
+    room_code: str
+    url: str
+    caption: str = ""
+    source: str  # "upload" | "url"
+    created_at: str
+
+
+class CreateRoomResponse(BaseModel):
+    room_code: str
+    master_token: str
+
+
+class JoinRoomRequest(BaseModel):
+    code: str
+    name: str
+
+
+class JoinRoomResponse(BaseModel):
+    player_id: str
+    room_code: str
+    name: str
+
+
+class SendImageRequest(BaseModel):
+    url: str
+    caption: str = ""
+    source: str = "url"
+
+
+# ------------- Connection Manager -------------
+class ConnectionManager:
+    def __init__(self):
+        # room_code -> list of (ws, role, id)
+        self.rooms: Dict[str, List[dict]] = {}
+
+    async def connect(self, ws: WebSocket, room_code: str, role: str, cid: str):
+        await ws.accept()
+        self.rooms.setdefault(room_code, []).append({"ws": ws, "role": role, "id": cid})
+
+    def disconnect(self, ws: WebSocket, room_code: str):
+        if room_code in self.rooms:
+            self.rooms[room_code] = [c for c in self.rooms[room_code] if c["ws"] is not ws]
+            if not self.rooms[room_code]:
+                del self.rooms[room_code]
+
+    async def broadcast(self, room_code: str, message: dict):
+        conns = self.rooms.get(room_code, [])
+        dead = []
+        for c in conns:
+            try:
+                await c["ws"].send_json(message)
+            except Exception:
+                dead.append(c)
+        for d in dead:
+            if room_code in self.rooms and d in self.rooms[room_code]:
+                self.rooms[room_code].remove(d)
+
+
+manager = ConnectionManager()
+
+
+def gen_code() -> str:
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# ------------- Routes -------------
 @api_router.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"message": "Proietta API"}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
+@api_router.post("/rooms", response_model=CreateRoomResponse)
+async def create_room():
+    # ensure unique code
+    for _ in range(10):
+        code = gen_code()
+        existing = await db.rooms.find_one({"code": code})
+        if not existing:
+            break
+    else:
+        raise HTTPException(500, "Cannot generate unique room code")
 
-# Include the router in the main app
+    room = {
+        "id": str(uuid.uuid4()),
+        "code": code,
+        "master_token": str(uuid.uuid4()),
+        "created_at": now_iso(),
+        "active": True,
+    }
+    await db.rooms.insert_one(dict(room))
+    return CreateRoomResponse(room_code=code, master_token=room["master_token"])
+
+
+@api_router.get("/rooms/{code}")
+async def get_room(code: str):
+    room = await db.rooms.find_one({"code": code.upper()}, {"_id": 0, "master_token": 0})
+    if not room:
+        raise HTTPException(404, "Stanza non trovata")
+    players = await db.players.find({"room_code": code.upper()}, {"_id": 0}).to_list(500)
+    images = await db.images.find({"room_code": code.upper()}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+    return {"room": room, "players": players, "images": images}
+
+
+@api_router.post("/rooms/join", response_model=JoinRoomResponse)
+async def join_room(req: JoinRoomRequest):
+    code = req.code.upper().strip()
+    name = req.name.strip()
+    if not name:
+        raise HTTPException(400, "Nome richiesto")
+    room = await db.rooms.find_one({"code": code, "active": True})
+    if not room:
+        raise HTTPException(404, "Stanza non trovata o chiusa")
+    player = {
+        "id": str(uuid.uuid4()),
+        "room_code": code,
+        "name": name,
+        "joined_at": now_iso(),
+        "online": True,
+    }
+    await db.players.insert_one(dict(player))
+    return JoinRoomResponse(player_id=player["id"], room_code=code, name=name)
+
+
+@api_router.post("/rooms/{code}/images")
+async def send_image(code: str, req: SendImageRequest, x_master_token: Optional[str] = Header(None)):
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code, "active": True})
+    if not room:
+        raise HTTPException(404, "Stanza non trovata")
+    if room["master_token"] != x_master_token:
+        raise HTTPException(403, "Non autorizzato")
+    image = {
+        "id": str(uuid.uuid4()),
+        "room_code": code,
+        "url": req.url,
+        "caption": req.caption or "",
+        "source": req.source or "url",
+        "created_at": now_iso(),
+    }
+    await db.images.insert_one(dict(image))
+    await manager.broadcast(code, {"type": "image", "data": image})
+    return image
+
+
+@api_router.post("/rooms/{code}/upload")
+async def upload_image(code: str, file: UploadFile = File(...), x_master_token: Optional[str] = Header(None)):
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code, "active": True})
+    if not room:
+        raise HTTPException(404, "Stanza non trovata")
+    if room["master_token"] != x_master_token:
+        raise HTTPException(403, "Non autorizzato")
+
+    ext = (file.filename or "file").split(".")[-1].lower() if "." in (file.filename or "") else "bin"
+    allowed = {"jpg", "jpeg", "png", "gif", "webp"}
+    if ext not in allowed:
+        raise HTTPException(400, "Formato non supportato")
+    path = f"{APP_NAME}/rooms/{code}/{uuid.uuid4()}.{ext}"
+    data = await file.read()
+    if len(data) > 15 * 1024 * 1024:
+        raise HTTPException(400, "File troppo grande (max 15MB)")
+    result = put_object(path, data, file.content_type or f"image/{ext}")
+    await db.files.insert_one({
+        "id": str(uuid.uuid4()),
+        "storage_path": result["path"],
+        "room_code": code,
+        "original_filename": file.filename,
+        "content_type": file.content_type or f"image/{ext}",
+        "size": result.get("size", len(data)),
+        "is_deleted": False,
+        "created_at": now_iso(),
+    })
+    return {"storage_path": result["path"]}
+
+
+@api_router.get("/files/{path:path}")
+async def download_file(path: str):
+    record = await db.files.find_one({"storage_path": path, "is_deleted": False}, {"_id": 0})
+    if not record:
+        raise HTTPException(404, "File non trovato")
+    data, content_type = get_object(path)
+    return Response(content=data, media_type=record.get("content_type", content_type))
+
+
+@api_router.post("/rooms/{code}/close")
+async def close_room(code: str, x_master_token: Optional[str] = Header(None)):
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room:
+        raise HTTPException(404, "Stanza non trovata")
+    if room["master_token"] != x_master_token:
+        raise HTTPException(403, "Non autorizzato")
+    await db.rooms.update_one({"code": code}, {"$set": {"active": False}})
+    await manager.broadcast(code, {"type": "room_closed"})
+    return {"ok": True}
+
+
+# ------------- WebSocket -------------
+@app.websocket("/api/ws/{code}")
+async def websocket_endpoint(websocket: WebSocket, code: str, role: str = Query("player"), id: str = Query("")):
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room:
+        await websocket.close(code=4404)
+        return
+    await manager.connect(websocket, code, role, id)
+    # notify presence
+    await manager.broadcast(code, {"type": "presence_join", "role": role, "id": id})
+    # send current online count
+    online = len([c for c in manager.rooms.get(code, []) if c["role"] == "player"])
+    await manager.broadcast(code, {"type": "presence_count", "players": online})
+    try:
+        while True:
+            msg = await websocket.receive_text()
+            # optional ping
+            try:
+                data = json.loads(msg)
+                if data.get("type") == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except Exception:
+                pass
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, code)
+        online = len([c for c in manager.rooms.get(code, []) if c["role"] == "player"])
+        await manager.broadcast(code, {"type": "presence_leave", "role": role, "id": id})
+        await manager.broadcast(code, {"type": "presence_count", "players": online})
+
+
 app.include_router(api_router)
 
 app.add_middleware(
@@ -77,12 +326,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+@app.on_event("startup")
+async def on_startup():
+    try:
+        init_storage()
+        logger.info("Storage initialized")
+    except Exception as e:
+        logger.error(f"Storage init failed: {e}")
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
