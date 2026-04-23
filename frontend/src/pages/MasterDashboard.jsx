@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Send, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords } from "lucide-react";
+import { Copy, Send, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles } from "lucide-react";
+import axios from "axios";
 import { api, wsUrl, fileUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,8 +21,11 @@ export default function MasterDashboard() {
   const [onlineCount, setOnlineCount] = useState(0);
   const [url, setUrl] = useState("");
   const [caption, setCaption] = useState("");
-  const [mode, setMode] = useState("url");
+  const [mode, setMode] = useState("pokemon");
   const [file, setFile] = useState(null);
+  const [pokeQuery, setPokeQuery] = useState("");
+  const [pokePreview, setPokePreview] = useState(null);
+  const [pokeLoading, setPokeLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const wsRef = useRef(null);
@@ -79,12 +83,41 @@ export default function MasterDashboard() {
     toast.success("Link copiato!");
   };
 
+  const searchPokemon = async (e) => {
+    e?.preventDefault();
+    const q = pokeQuery.trim().toLowerCase();
+    if (!q) return;
+    setPokeLoading(true);
+    setPokePreview(null);
+    try {
+      const { data } = await axios.get(`https://pokeapi.co/api/v2/pokemon/${encodeURIComponent(q)}`);
+      const artwork = data.sprites?.other?.["official-artwork"]?.front_default
+        || data.sprites?.other?.home?.front_default
+        || data.sprites?.front_default;
+      if (!artwork) throw new Error("no-sprite");
+      const name = data.name.charAt(0).toUpperCase() + data.name.slice(1);
+      const types = data.types.map((t) => t.type.name).join(" / ");
+      setPokePreview({
+        id: data.id,
+        name,
+        types,
+        url: artwork,
+        hp: data.stats?.find((s) => s.stat.name === "hp")?.base_stat,
+      });
+    } catch {
+      toast.error("Pokémon non trovato. Riprova con un altro nome o numero.");
+    } finally {
+      setPokeLoading(false);
+    }
+  };
+
   const send = async () => {
     if (!code || !token) return;
     setSending(true);
     try {
       let imgUrl = url.trim();
       let source = "url";
+      let finalCaption = caption;
       if (mode === "upload") {
         if (!file) { toast.error("Seleziona un'immagine"); setSending(false); return; }
         const form = new FormData();
@@ -94,16 +127,23 @@ export default function MasterDashboard() {
         });
         imgUrl = fileUrl(up.data.storage_path);
         source = "upload";
+      } else if (mode === "pokemon") {
+        if (!pokePreview) { toast.error("Cerca prima un Pokémon"); setSending(false); return; }
+        imgUrl = pokePreview.url;
+        source = "pokemon";
+        if (!finalCaption) {
+          finalCaption = `#${String(pokePreview.id).padStart(3, "0")} ${pokePreview.name} — ${pokePreview.types.toUpperCase()}`;
+        }
       } else {
         if (!imgUrl) { toast.error("Inserisci un URL"); setSending(false); return; }
       }
       const res = await api.post(
         `/rooms/${code}/images`,
-        { url: imgUrl, caption, source },
+        { url: imgUrl, caption: finalCaption, source },
         { headers: { "X-Master-Token": token } }
       );
       setImages((prev) => [...prev, res.data]);
-      setUrl(""); setCaption(""); setFile(null);
+      setUrl(""); setCaption(""); setFile(null); setPokeQuery(""); setPokePreview(null);
       toast.success("Pokémon mostrato agli allenatori!");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Errore invio");
@@ -192,6 +232,13 @@ export default function MasterDashboard() {
                 </div>
                 <div className="flex rounded-full border border-white/10 bg-slate-950/80 p-1">
                   <button
+                    data-testid="mode-pokemon-btn"
+                    onClick={() => setMode("pokemon")}
+                    className={`flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${mode === "pokemon" ? "bg-red-600 text-white" : "text-slate-400 hover:text-slate-50"}`}
+                  >
+                    <Sparkles className="h-3 w-3" /> PokéAPI
+                  </button>
+                  <button
                     data-testid="mode-url-btn"
                     onClick={() => setMode("url")}
                     className={`rounded-full px-4 py-1.5 text-xs font-bold uppercase tracking-wider transition-all ${mode === "url" ? "bg-red-600 text-white" : "text-slate-400 hover:text-slate-50"}`}
@@ -208,7 +255,55 @@ export default function MasterDashboard() {
                 </div>
               </div>
 
-              {mode === "url" ? (
+              {mode === "pokemon" ? (
+                <div className="space-y-3">
+                  <form onSubmit={searchPokemon} className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                      <Input
+                        data-testid="pokemon-search-input"
+                        value={pokeQuery}
+                        onChange={(e) => setPokeQuery(e.target.value)}
+                        placeholder="Nome o numero (es. charizard, 25, mewtwo)"
+                        className="h-12 border-white/10 bg-slate-950/80 pl-10 text-slate-50 placeholder:text-slate-600 focus-visible:border-red-500"
+                      />
+                    </div>
+                    <Button
+                      type="submit"
+                      data-testid="pokemon-search-btn"
+                      disabled={pokeLoading}
+                      className="h-12 rounded-lg bg-amber-500 px-5 font-heading font-bold uppercase tracking-wider text-slate-950 hover:bg-amber-400"
+                    >
+                      {pokeLoading ? "..." : "Cerca"}
+                    </Button>
+                  </form>
+
+                  {pokePreview && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="flex items-center gap-4 rounded-xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-500/10 to-red-500/10 p-4"
+                      data-testid="pokemon-preview"
+                    >
+                      <div className="flex h-28 w-28 flex-shrink-0 items-center justify-center rounded-xl bg-slate-950/60">
+                        <img src={pokePreview.url} alt={pokePreview.name} className="h-24 w-24 object-contain" data-testid="pokemon-preview-image" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">#{String(pokePreview.id).padStart(3, "0")}</p>
+                        <h3 className="font-heading text-2xl font-bold text-slate-50">{pokePreview.name}</h3>
+                        <p className="mt-1 text-sm uppercase tracking-wider text-slate-300">{pokePreview.types}</p>
+                        {pokePreview.hp && (
+                          <p className="mt-1 text-xs text-slate-500">HP base: <span className="text-emerald-400">{pokePreview.hp}</span></p>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+
+                  {!pokePreview && !pokeLoading && (
+                    <p className="text-xs text-slate-500">Digita il nome o il numero del Pokédex, poi premi <span className="text-amber-400">Cerca</span>. L'artwork ufficiale apparirà qui.</p>
+                  )}
+                </div>
+              ) : mode === "url" ? (
                 <Input
                   data-testid="image-url-input"
                   value={url}
@@ -234,12 +329,12 @@ export default function MasterDashboard() {
               )}
 
               <div className="mt-4">
-                <label className="mb-2 block font-pixel text-[9px] uppercase tracking-widest text-amber-400">Nome / Mossa</label>
+                <label className="mb-2 block font-pixel text-[9px] uppercase tracking-widest text-amber-400">Didascalia {mode === "pokemon" && <span className="text-slate-600 normal-case tracking-normal">(auto se vuota)</span>}</label>
                 <Input
                   data-testid="caption-input"
                   value={caption}
                   onChange={(e) => setCaption(e.target.value)}
-                  placeholder="es. Charizard lv.65 — Lanciafiamme"
+                  placeholder={mode === "pokemon" ? "Lascia vuoto per #025 Pikachu — ELECTRIC" : "es. Charizard lv.65 — Lanciafiamme"}
                   maxLength={140}
                   className="h-12 border-white/10 bg-slate-950/80 text-slate-50 placeholder:text-slate-600 focus-visible:border-amber-500"
                 />
