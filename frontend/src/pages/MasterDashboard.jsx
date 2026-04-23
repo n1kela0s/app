@@ -26,6 +26,10 @@ export default function MasterDashboard() {
   const [pokeQuery, setPokeQuery] = useState("");
   const [pokePreview, setPokePreview] = useState(null);
   const [pokeLoading, setPokeLoading] = useState(false);
+  const [pokeList, setPokeList] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(-1);
   const [sending, setSending] = useState(false);
   const [copied, setCopied] = useState(false);
   const wsRef = useRef(null);
@@ -71,6 +75,36 @@ export default function MasterDashboard() {
     return () => ws.close();
   }, [code]);
 
+  // Load Pokémon names list once (for autocomplete)
+  useEffect(() => {
+    if (pokeList.length > 0) return;
+    const cached = localStorage.getItem("poke_names_v1");
+    if (cached) {
+      try { setPokeList(JSON.parse(cached)); return; } catch {}
+    }
+    axios.get("https://pokeapi.co/api/v2/pokemon?limit=1025")
+      .then(({ data }) => {
+        const names = data.results.map((r, i) => ({ name: r.name, id: i + 1 }));
+        setPokeList(names);
+        try { localStorage.setItem("poke_names_v1", JSON.stringify(names)); } catch {}
+      })
+      .catch(() => {});
+  }, [pokeList.length]);
+
+  // Filter suggestions
+  useEffect(() => {
+    const q = pokeQuery.trim().toLowerCase();
+    if (!q || pokeList.length === 0) {
+      setSuggestions([]);
+      return;
+    }
+    // Prefix match first, then substring; cap to 8
+    const starts = pokeList.filter((p) => p.name.startsWith(q));
+    const contains = pokeList.filter((p) => !p.name.startsWith(q) && p.name.includes(q));
+    setSuggestions([...starts, ...contains].slice(0, 8));
+    setHighlightIdx(-1);
+  }, [pokeQuery, pokeList]);
+
   const copyCode = async () => {
     await navigator.clipboard.writeText(code);
     setCopied(true);
@@ -83,10 +117,11 @@ export default function MasterDashboard() {
     toast.success("Link copiato!");
   };
 
-  const searchPokemon = async (e) => {
+  const searchPokemon = async (e, overrideName) => {
     e?.preventDefault();
-    const q = pokeQuery.trim().toLowerCase();
+    const q = (overrideName ?? pokeQuery).trim().toLowerCase();
     if (!q) return;
+    setShowSuggestions(false);
     setPokeLoading(true);
     setPokePreview(null);
     try {
@@ -108,6 +143,28 @@ export default function MasterDashboard() {
       toast.error("Pokémon non trovato. Riprova con un altro nome o numero.");
     } finally {
       setPokeLoading(false);
+    }
+  };
+
+  const pickSuggestion = (s) => {
+    setPokeQuery(s.name);
+    setShowSuggestions(false);
+    searchPokemon(null, s.name);
+  };
+
+  const handlePokeKeyDown = (e) => {
+    if (!showSuggestions || suggestions.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setHighlightIdx((i) => Math.min(i + 1, suggestions.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setHighlightIdx((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter" && highlightIdx >= 0) {
+      e.preventDefault();
+      pickSuggestion(suggestions[highlightIdx]);
+    } else if (e.key === "Escape") {
+      setShowSuggestions(false);
     }
   };
 
@@ -263,10 +320,35 @@ export default function MasterDashboard() {
                       <Input
                         data-testid="pokemon-search-input"
                         value={pokeQuery}
-                        onChange={(e) => setPokeQuery(e.target.value)}
+                        onChange={(e) => { setPokeQuery(e.target.value); setShowSuggestions(true); }}
+                        onFocus={() => setShowSuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
+                        onKeyDown={handlePokeKeyDown}
                         placeholder="Nome o numero (es. charizard, 25, mewtwo)"
                         className="h-12 border-white/10 bg-slate-950/80 pl-10 text-slate-50 placeholder:text-slate-600 focus-visible:border-red-500"
+                        autoComplete="off"
                       />
+                      {showSuggestions && suggestions.length > 0 && (
+                        <div
+                          data-testid="pokemon-suggestions"
+                          className="absolute left-0 right-0 top-full z-30 mt-1 max-h-64 overflow-y-auto rounded-xl border border-amber-500/30 bg-slate-950/95 py-1 shadow-[0_12px_40px_rgba(0,0,0,0.6)] backdrop-blur-xl"
+                        >
+                          {suggestions.map((s, idx) => (
+                            <button
+                              key={s.name}
+                              type="button"
+                              onMouseDown={(e) => e.preventDefault()}
+                              onClick={() => pickSuggestion(s)}
+                              onMouseEnter={() => setHighlightIdx(idx)}
+                              data-testid={`pokemon-suggestion-${s.name}`}
+                              className={`flex w-full items-center gap-3 px-3 py-2 text-left transition-colors ${highlightIdx === idx ? "bg-red-500/20" : "hover:bg-white/5"}`}
+                            >
+                              <span className="font-pixel text-[9px] text-amber-400">#{String(s.id).padStart(3, "0")}</span>
+                              <span className="font-heading text-sm capitalize text-slate-100">{s.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     <Button
                       type="submit"
