@@ -26,9 +26,9 @@ app = FastAPI()
 api_router = APIRouter(prefix="/api")
 
 # ------------- Object Storage helpers -------------
-STORAGE_URL = "https://integrations.emergentagent.com/objstore/api/v1/storage"
+STORAGE_URL = os.environ.get("STORAGE_URL")
 EMERGENT_KEY = os.environ.get("EMERGENT_LLM_KEY")
-APP_NAME = "proietta"
+APP_NAME = os.environ.get("APP_NAME")
 storage_key: Optional[str] = None
 
 
@@ -186,8 +186,14 @@ async def get_room(code: str):
     room = await db.rooms.find_one({"code": code.upper()}, {"_id": 0, "master_token": 0})
     if not room:
         raise HTTPException(404, "Stanza non trovata")
-    players = await db.players.find({"room_code": code.upper()}, {"_id": 0}).to_list(500)
-    images = await db.images.find({"room_code": code.upper()}, {"_id": 0}).sort("created_at", 1).to_list(1000)
+    players = await db.players.find(
+        {"room_code": code.upper()},
+        {"_id": 0, "id": 1, "name": 1, "joined_at": 1, "online": 1},
+    ).to_list(500)
+    images = await db.images.find(
+        {"room_code": code.upper()},
+        {"_id": 0, "id": 1, "url": 1, "caption": 1, "source": 1, "created_at": 1, "room_code": 1},
+    ).sort("created_at", 1).to_list(1000)
     return {"room": room, "players": players, "images": images}
 
 
