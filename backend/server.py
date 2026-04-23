@@ -332,6 +332,26 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
+# ... (tutto il tuo codice precedente) ...
+
+# --- INTEGRAZIONE FRONTEND ---
+# 1. Definiamo il percorso della cartella 'dist' che verrà creata dal build del frontend
+frontend_dist_path = Path(__file__).parent.parent / "frontend" / "dist"
+
+# 2. Serviamo i file statici (JS, CSS, Immagini)
+# Importante: va messo DOPO app.include_router(api_router) così non sovrascrive le API
+if frontend_dist_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist_path), html=True), name="frontend")
+
+    # 3. Gestiamo il "Fallback": se l'utente ricarica una pagina del frontend, 
+    # FastAPI deve mandargli index.html invece di dare 404
+    @app.exception_handler(404)
+    async def fallback_to_index(request, exc):
+        return FileResponse(frontend_dist_path / "index.html")
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
