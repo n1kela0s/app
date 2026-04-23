@@ -1,0 +1,177 @@
+{
+  "theme_and_archetype": {
+    "theme": "dark",
+    "archetype": "Archetype 5 (Jewel & Luxury / Cinematic Dark)",
+    "mood": "Cinematic, exclusive, immersive, and magical. The app is a private screening room where the Master projects images to the Players.",
+    "rationale": "For a real-time image sharing platform, a deep dark theme ensures the shared images (the primary content) stand out brilliantly against the background, akin to a movie theater or a high-end digital art gallery."
+  },
+  "typography": {
+    "strategy": "The 'Editorial Future' pairing: Wide Display Sans for impactful headers + Crisp Geometric Sans for UI data.",
+    "fonts": {
+      "heading": {
+        "family": "Outfit",
+        "weights": ["300", "700", "900"],
+        "css_import": "@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;700;900&display=swap');"
+      },
+      "body": {
+        "family": "Manrope",
+        "weights": ["400", "500", "600"],
+        "css_import": "@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&display=swap');"
+      }
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl font-black tracking-tighter text-zinc-50 leading-none",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl font-bold tracking-tight text-zinc-50",
+      "h3": "text-xl sm:text-2xl font-bold tracking-tight text-zinc-100",
+      "overline": "text-xs font-bold uppercase tracking-[0.2em] text-amber-500",
+      "body": "text-base font-normal text-zinc-400 leading-relaxed",
+      "caption": "text-sm text-zinc-500"
+    }
+  },
+  "color_palette": {
+    "background": {
+      "primary": "#09090B",
+      "surface": "#18181B",
+      "glass": "rgba(0, 0, 0, 0.6)"
+    },
+    "text": {
+      "primary": "#FAFAFA",
+      "secondary": "#A1A1AA",
+      "muted": "#71717A"
+    },
+    "accents": {
+      "primary": "#F59E0B",
+      "primary_hover": "#D97706",
+      "primary_glow": "rgba(245, 158, 11, 0.5)",
+      "interactive": "#3B82F6",
+      "interactive_hover": "#2563EB",
+      "danger": "#E11D48",
+      "danger_hover": "#BE123C",
+      "success": "#10B981"
+    },
+    "borders": {
+      "subtle": "rgba(255, 255, 255, 0.1)",
+      "active": "rgba(255, 255, 255, 0.2)"
+    }
+  },
+  "layout_and_spacing": {
+    "philosophy": "Generous Spacing (p-8, p-12) for the Landing and Player views to feel like a gallery. Tight, functional 'Control Room' grid (gap-4) for the Master dashboard.",
+    "grids": {
+      "landing": "grid-cols-1 md:grid-cols-12 gap-8",
+      "master_dashboard": "grid-cols-1 lg:grid-cols-12 gap-6",
+      "player_view": "h-screen w-screen overflow-hidden flex flex-col items-center justify-center relative"
+    },
+    "surfaces": {
+      "master_cards": "bg-zinc-900/50 backdrop-blur-md border border-white/10 rounded-2xl p-6 shadow-[0_8px_32px_rgba(0,0,0,0.4)]",
+      "player_glass_overlay": "bg-black/60 backdrop-blur-2xl border-t border-white/10 p-6 absolute bottom-0 left-0 w-full"
+    }
+  },
+  "pages": {
+    "landing": {
+      "description": "Split intent gateway. Massive centered hero typography over a dark cinematic background.",
+      "layout": "Use a full-screen background image with a heavy bg-black/70 overlay. Two dominant call-to-actions in the center.",
+      "components": [
+        "Header with simple Logo",
+        "Hero Title: 'Proietta il tuo mondo.' (Project your world)",
+        "Subtitle: 'Condividi immagini in tempo reale con i tuoi amici.'",
+        "Left Card/Button (Master): Rich Amber accent, 'Crea stanza (Master)'",
+        "Right Card/Button (Player): Deep Blue accent or Ghost with border, 'Entra come giocatore'"
+      ]
+    },
+    "join_room": {
+      "description": "Simple, focused entry gate.",
+      "layout": "Centered floating glass card (Crystal Glassmorphism) on a dark textured background.",
+      "elements": [
+        "Input: 'Codice Stanza' (uppercase formatting)",
+        "Input: 'Il tuo nome' (Player name)",
+        "Button: 'Entra' (Full width, Blue accent)"
+      ]
+    },
+    "master_dashboard": {
+      "description": "The Control Room. Technical, dense, and organized.",
+      "layout_grid": "lg:grid-cols-12. Left column (col-span-8) for image staging. Right column (col-span-4) for room stats.",
+      "sections": {
+        "header": "Sticky nav, Room Code prominent badge (Amber), 'Chiudi stanza' (Close room) button.",
+        "stage_area_left": {
+          "classes": "lg:col-span-8 flex flex-col gap-6",
+          "content": "Large 'Upload Image or Paste URL' dropzone (dashed border-white/20, hover:border-amber-500/50). Input for 'Caption/Message'. Massive 'INVIA' (Send) button."
+        },
+        "stats_area_right": {
+          "classes": "lg:col-span-4 flex flex-col gap-6",
+          "content": "List of connected players (using Shadcn Avatar + Name, green dot for online). ScrollArea for live feed."
+        },
+        "history_strip_bottom": {
+          "classes": "col-span-full mt-8",
+          "content": "Horizontal ScrollArea (Shadcn) showing thumbnails of previously sent images in this session."
+        }
+      }
+    },
+    "player_view": {
+      "description": "The Art Gallery. Passive, immersive, 100% focused on the received image.",
+      "layout": "Full viewport. The received image is max-h-[85vh] max-w-[90vw] object-contain, centered.",
+      "elements": {
+        "main_image": "Animated in using Framer Motion (opacity 0 to 1, scale 0.95 to 1, duration 0.8s ease-out).",
+        "caption_overlay": "Glassmorphism panel (bg-black/60, backdrop-blur-xl) anchored at the bottom of the screen or bottom of the image, containing the Master's text in big, legible typography (text-2xl md:text-3xl font-heading text-zinc-50).",
+        "waiting_state": "If no image sent yet: subtle pulsating logo or 'In attesa del master...' (Waiting for master...) in text-zinc-500.",
+        "history_trigger": "Floating circular button (lucide-react History icon) top-right or bottom-right.",
+        "history_sheet": "Shadcn Sheet component (Side right). Dark glass background. Shows a vertical list of all past images received with timestamps."
+      }
+    }
+  },
+  "components_and_libraries": {
+    "ui_library": "shadcn/ui",
+    "required_shadcn": [
+      "Button",
+      "Input",
+      "Card",
+      "Avatar",
+      "Badge",
+      "ScrollArea",
+      "Sheet",
+      "Separator",
+      "Toast (Sonner)"
+    ],
+    "icons": {
+      "library": "lucide-react",
+      "rationale": "Clean, scalable, matches the geometric UI."
+    },
+    "animation": {
+      "library": "framer-motion",
+      "usage": [
+        "Image reveal (Player View): fade + scale",
+        "New player join (Master View): list slide-in",
+        "Hover states on Master cards (y-translate -2px, shadow glow)"
+      ]
+    },
+    "overrides": {
+      "inputs": "bg-black/50 border-white/10 text-zinc-50 focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50",
+      "buttons": "rounded-full or rounded-lg with rigorous transition-all duration-300"
+    }
+  },
+  "motion_and_interactions": {
+    "hover_states": "All buttons must explicitly shift bg and text colors. Example: hover:bg-amber-600 hover:text-white.",
+    "focus_states": "Inputs and buttons must have focus:outline-none focus:ring-2 focus:ring-amber-500/50.",
+    "image_transition": "When Master sends a new image, Player view crossfades smoothly. Do not snap instantly."
+  },
+  "accessibility": {
+    "contrast": "Text over the cinematic background or shared images MUST have sufficient text-shadow (e.g., drop-shadow-md) or sit on a glassmorphic background to maintain APCA readability.",
+    "test_ids": "Add data-testid to key elements: 'create-room-btn', 'join-room-btn', 'send-image-btn', 'room-code-display', 'player-history-trigger'."
+  },
+  "image_urls": {
+    "hero_background": {
+      "url": "https://images.unsplash.com/photo-1760170437237-a3654545ab4c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1ODB8MHwxfHNlYXJjaHwxfHxkYXJrJTIwY2luZW1hdGljJTIwbW92aWUlMjB0aGVhdGVyfGVufDB8fHx8MTc3Njk4MTcxNHww&ixlib=rb-4.1.0&q=85",
+      "category": "background",
+      "description": "Empty cinematic theater. Use as the full-screen background on the Landing page with a heavy bg-black/60 to bg-black/80 overlay."
+    },
+    "sample_image_1": {
+      "url": "https://images.unsplash.com/photo-1758272959595-1d4113b1118b?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2ODl8MHwxfHNlYXJjaHwyfHxmcmllbmRzJTIwbGF1Z2hpbmclMjBjYW1wZmlyZSUyMG5pZ2h0fGVufDB8fHx8MTc3Njk4MTcxM3ww&ixlib=rb-4.1.0&q=85",
+      "category": "demo_content",
+      "description": "Friends around campfire. Use as a placeholder or demo image in the Master's staging area."
+    },
+    "sample_image_2": {
+      "url": "https://images.unsplash.com/photo-1759434192802-249e5a5f78d5?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzF8MHwxfHNlYXJjaHwxfHxlcGljJTIwZ2xvd2luZyUyMGxhbmRzY2FwZSUyMG5pZ2h0fGVufDB8fHx8MTc3Njk4MTcxNHww&ixlib=rb-4.1.0&q=85",
+      "category": "demo_content",
+      "description": "Epic glowing landscape. Use as an example of a previously sent image in the history strip."
+    }
+  }
+}
