@@ -1,5 +1,6 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;700;900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Russo+One&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -7,19 +8,24 @@
 
 body {
     margin: 0;
-    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Chakra Petch', -apple-system, BlinkMacSystemFont, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background-color: #09090B;
-    color: #FAFAFA;
+    background-color: #0B0F1A;
+    color: #F8FAFC;
 }
 
 .font-heading {
-    font-family: 'Outfit', sans-serif;
+    font-family: 'Russo One', sans-serif;
+    letter-spacing: 0.02em;
 }
 
 .font-body {
-    font-family: 'Manrope', sans-serif;
+    font-family: 'Chakra Petch', sans-serif;
+}
+
+.font-pixel {
+    font-family: 'Press Start 2P', monospace;
 }
 
 code {
@@ -51,52 +57,73 @@ code {
 }
 
 .glow-amber {
-    box-shadow: 0 0 40px rgba(245, 158, 11, 0.25), 0 0 12px rgba(245, 158, 11, 0.15);
+    box-shadow: 0 0 40px rgba(220, 38, 38, 0.35), 0 0 12px rgba(220, 38, 38, 0.2);
+}
+
+.pokeball-pattern {
+    background-image:
+        radial-gradient(circle at 20% 30%, rgba(220, 38, 38, 0.08) 0%, transparent 40%),
+        radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.06) 0%, transparent 40%),
+        radial-gradient(circle at 50% 50%, rgba(251, 191, 36, 0.04) 0%, transparent 60%);
+}
+
+.scanlines::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        0deg,
+        rgba(255,255,255,0.015) 0px,
+        rgba(255,255,255,0.015) 1px,
+        transparent 1px,
+        transparent 3px
+    );
 }
 
 @layer base {
     :root {
-        --background: 240 6% 6%;
-        --foreground: 0 0% 98%;
-        --card: 240 6% 10%;
-        --card-foreground: 0 0% 98%;
-        --popover: 240 6% 10%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 43 96% 50%;
-        --primary-foreground: 0 0% 4%;
-        --secondary: 240 4% 16%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 240 4% 16%;
-        --muted-foreground: 240 5% 65%;
-        --accent: 240 4% 16%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 346 77% 49%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 240 4% 16%;
-        --input: 240 4% 12%;
-        --ring: 43 96% 50%;
+        --background: 220 40% 7%;
+        --foreground: 210 40% 98%;
+        --card: 220 30% 11%;
+        --card-foreground: 210 40% 98%;
+        --popover: 220 30% 11%;
+        --popover-foreground: 210 40% 98%;
+        --primary: 0 72% 51%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 220 25% 16%;
+        --secondary-foreground: 210 40% 98%;
+        --muted: 220 25% 16%;
+        --muted-foreground: 215 20% 65%;
+        --accent: 43 96% 56%;
+        --accent-foreground: 220 40% 7%;
+        --destructive: 0 84% 55%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 220 25% 18%;
+        --input: 220 30% 13%;
+        --ring: 0 72% 51%;
         --radius: 0.75rem;
     }
     .dark {
-        --background: 240 6% 6%;
-        --foreground: 0 0% 98%;
-        --card: 240 6% 10%;
-        --card-foreground: 0 0% 98%;
-        --popover: 240 6% 10%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 43 96% 50%;
-        --primary-foreground: 0 0% 4%;
-        --secondary: 240 4% 16%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 240 4% 16%;
-        --muted-foreground: 240 5% 65%;
-        --accent: 240 4% 16%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 346 77% 49%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 240 4% 16%;
-        --input: 240 4% 12%;
-        --ring: 43 96% 50%;
+        --background: 220 40% 7%;
+        --foreground: 210 40% 98%;
+        --card: 220 30% 11%;
+        --card-foreground: 210 40% 98%;
+        --popover: 220 30% 11%;
+        --popover-foreground: 210 40% 98%;
+        --primary: 0 72% 51%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 220 25% 16%;
+        --secondary-foreground: 210 40% 98%;
+        --muted: 220 25% 16%;
+        --muted-foreground: 215 20% 65%;
+        --accent: 43 96% 56%;
+        --accent-foreground: 220 40% 7%;
+        --destructive: 0 84% 55%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 220 25% 18%;
+        --input: 220 30% 13%;
+        --ring: 0 72% 51%;
     }
 }
 
@@ -106,6 +133,23 @@ code {
     }
     html, body {
         @apply bg-background text-foreground;
+    }
+    @keyframes spin-slow {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+    }
+    .animate-spin-slow {
+        animation: spin-slow 6s linear infinite;
+    }
+    @keyframes shake {
+        0%,100% { transform: rotate(0deg); }
+        20% { transform: rotate(-8deg); }
+        40% { transform: rotate(8deg); }
+        60% { transform: rotate(-4deg); }
+        80% { transform: rotate(4deg); }
+    }
+    .animate-shake {
+        animation: shake 1.6s ease-in-out infinite;
     }
 }
 

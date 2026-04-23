@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { History, LogOut, Projector } from "lucide-react";
+import { History, LogOut } from "lucide-react";
 import { api, wsUrl } from "@/lib/api";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+import Pokeball from "@/components/Pokeball";
 
 export default function PlayerView() {
   const { code } = useParams();
@@ -18,19 +19,15 @@ export default function PlayerView() {
 
   useEffect(() => {
     const stored = localStorage.getItem(`player_${code}`);
-    if (!stored) {
-      navigate("/join");
-      return;
-    }
+    if (!stored) { navigate("/join"); return; }
     const p = JSON.parse(stored);
     setPlayer(p);
 
-    // Load history
     api.get(`/rooms/${code}`).then((res) => {
       const imgs = res.data.images || [];
       setHistory(imgs);
       if (imgs.length > 0) setCurrent(imgs[imgs.length - 1]);
-    }).catch(() => toast.error("Stanza non disponibile"));
+    }).catch(() => toast.error("Arena non disponibile"));
 
     const ws = new WebSocket(wsUrl(code, "player", p.id));
     wsRef.current = ws;
@@ -42,7 +39,7 @@ export default function PlayerView() {
           setCurrent(msg.data);
           setHistory((prev) => [...prev, msg.data]);
         } else if (msg.type === "room_closed") {
-          toast.info("La stanza è stata chiusa dal master");
+          toast.info("L'arena è stata chiusa dal master");
           setTimeout(() => navigate("/"), 1500);
         }
       } catch {}
@@ -59,15 +56,18 @@ export default function PlayerView() {
   };
 
   return (
-    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-zinc-950 font-body text-zinc-100" data-testid="player-view">
-      {/* Top bar */}
+    <div className="relative flex h-screen w-screen flex-col overflow-hidden bg-slate-950 font-body text-slate-100 pokeball-pattern" data-testid="player-view">
+      {/* Arena floor gradient */}
+      <div className="absolute inset-0 bg-gradient-to-b from-slate-950 via-slate-900 to-red-950/20" />
+      <div className="absolute bottom-0 left-1/2 h-[50vh] w-[120vw] -translate-x-1/2 rounded-[50%] bg-red-600/10 blur-[120px]" />
+
       <header className="absolute left-0 right-0 top-0 z-20 flex items-center justify-between px-6 py-4">
-        <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-3 py-1.5 backdrop-blur-md">
-          <Projector className="h-4 w-4 text-amber-500" />
-          <span className="font-heading text-xs font-bold tracking-[0.2em] text-amber-400">{code}</span>
+        <div className="flex items-center gap-3 rounded-full border-2 border-red-500/30 bg-slate-950/70 px-4 py-2 backdrop-blur-md">
+          <Pokeball className="h-6 w-6" />
+          <span className="font-heading text-sm font-bold tracking-[0.25em] text-red-400">{code}</span>
           <span className="mx-1 h-3 w-px bg-white/10" />
-          <span className="flex items-center gap-1.5 text-xs text-zinc-400">
-            <span className={`h-1.5 w-1.5 rounded-full ${status === "online" ? "bg-emerald-400 animate-pulse" : "bg-zinc-600"}`} />
+          <span className="flex items-center gap-1.5 text-xs text-slate-300">
+            <span className={`h-1.5 w-1.5 rounded-full ${status === "online" ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
             {player?.name}
           </span>
         </div>
@@ -76,26 +76,32 @@ export default function PlayerView() {
             <SheetTrigger asChild>
               <button
                 data-testid="player-history-trigger"
-                className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/50 text-zinc-300 backdrop-blur-md transition-all hover:border-amber-500/40 hover:text-amber-400"
+                className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-amber-500/30 bg-slate-950/70 text-amber-400 backdrop-blur-md transition-all hover:border-amber-500/80 hover:bg-amber-500/10"
               >
                 <History className="h-4 w-4" />
               </button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-full max-w-md border-white/10 bg-zinc-950/95 text-zinc-100 backdrop-blur-2xl">
+            <SheetContent side="right" className="w-full max-w-md border-amber-500/20 bg-slate-950/95 text-slate-100 backdrop-blur-2xl">
               <SheetHeader>
-                <SheetTitle className="font-heading text-2xl font-bold text-zinc-50">Storico</SheetTitle>
-                <p className="text-sm text-zinc-500">{history.length} immagini ricevute in questa sessione</p>
+                <div className="flex items-center gap-3">
+                  <Pokeball className="h-8 w-8" />
+                  <div>
+                    <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">Pokédex Battaglia</p>
+                    <SheetTitle className="font-heading text-2xl font-bold text-slate-50">Storico</SheetTitle>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-400">{history.length} Pokémon schierati in questa sessione</p>
               </SheetHeader>
-              <ScrollArea className="mt-6 h-[calc(100vh-140px)] pr-3">
+              <ScrollArea className="mt-6 h-[calc(100vh-160px)] pr-3">
                 <div className="flex flex-col gap-4">
                   {[...history].reverse().map((img) => (
-                    <div key={img.id} className="overflow-hidden rounded-xl border border-white/5 bg-black/40" data-testid={`player-history-${img.id}`}>
+                    <div key={img.id} className="overflow-hidden rounded-xl border border-amber-500/20 bg-slate-900/60" data-testid={`player-history-${img.id}`}>
                       <img src={img.url} alt={img.caption} className="w-full object-cover" />
-                      {img.caption && <p className="border-t border-white/5 px-4 py-3 font-heading text-sm text-zinc-200">{img.caption}</p>}
-                      <p className="px-4 pb-3 text-xs text-zinc-600">{new Date(img.created_at).toLocaleTimeString()}</p>
+                      {img.caption && <p className="border-t border-amber-500/20 px-4 py-3 font-heading text-sm text-slate-100">{img.caption}</p>}
+                      <p className="px-4 pb-3 text-xs text-slate-600">{new Date(img.created_at).toLocaleTimeString()}</p>
                     </div>
                   ))}
-                  {history.length === 0 && <p className="py-8 text-center text-sm text-zinc-600">Ancora nulla...</p>}
+                  {history.length === 0 && <p className="py-8 text-center text-sm text-slate-600">Ancora nessun Pokémon...</p>}
                 </div>
               </ScrollArea>
             </SheetContent>
@@ -103,41 +109,43 @@ export default function PlayerView() {
           <button
             data-testid="player-leave-btn"
             onClick={leaveRoom}
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/50 text-zinc-300 backdrop-blur-md transition-all hover:border-rose-500/40 hover:text-rose-400"
+            className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-rose-500/30 bg-slate-950/70 text-rose-400 backdrop-blur-md transition-all hover:border-rose-500/80 hover:bg-rose-500/10"
           >
             <LogOut className="h-4 w-4" />
           </button>
         </div>
       </header>
 
-      {/* Stage */}
-      <div className="relative flex flex-1 items-center justify-center px-6 py-20">
+      <div className="relative z-10 flex flex-1 items-center justify-center px-6 py-20">
         <AnimatePresence mode="wait">
           {current ? (
             <motion.div
               key={current.id}
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 1.02 }}
-              transition={{ duration: 0.8, ease: "easeOut" }}
+              initial={{ opacity: 0, scale: 0.85, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 1.05 }}
+              transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
               className="flex h-full w-full flex-col items-center justify-center"
               data-testid="current-image-container"
             >
-              <img
-                src={current.url}
-                alt={current.caption}
-                className="max-h-[75vh] max-w-[92vw] rounded-2xl object-contain shadow-[0_30px_120px_rgba(0,0,0,0.8)]"
-                data-testid="current-image"
-              />
+              <div className="relative">
+                <div className="absolute -inset-4 rounded-3xl bg-gradient-to-r from-red-500/30 via-amber-400/20 to-blue-500/30 blur-2xl" />
+                <img
+                  src={current.url}
+                  alt={current.caption}
+                  className="relative max-h-[70vh] max-w-[92vw] rounded-2xl border-2 border-red-500/20 object-contain shadow-[0_30px_120px_rgba(0,0,0,0.9)]"
+                  data-testid="current-image"
+                />
+              </div>
               {current.caption && (
                 <motion.div
-                  initial={{ opacity: 0, y: 14 }}
+                  initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.3, duration: 0.5 }}
-                  className="mt-6 max-w-3xl rounded-2xl border border-white/10 bg-black/70 px-6 py-4 text-center backdrop-blur-2xl"
+                  className="mt-6 max-w-3xl rounded-2xl border-2 border-amber-500/30 bg-slate-950/85 px-8 py-4 text-center backdrop-blur-2xl shadow-[0_0_40px_rgba(251,191,36,0.15)]"
                   data-testid="current-caption"
                 >
-                  <p className="font-heading text-xl font-bold tracking-tight text-zinc-50 sm:text-2xl md:text-3xl">
+                  <p className="font-heading text-xl font-bold tracking-tight text-amber-300 sm:text-2xl md:text-3xl">
                     {current.caption}
                   </p>
                 </motion.div>
@@ -148,18 +156,15 @@ export default function PlayerView() {
               key="waiting"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex flex-col items-center gap-4"
+              className="flex flex-col items-center gap-6"
               data-testid="waiting-state"
             >
-              <motion.div
-                animate={{ scale: [1, 1.08, 1], opacity: [0.5, 1, 0.5] }}
-                transition={{ duration: 2.4, repeat: Infinity }}
-                className="flex h-20 w-20 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10"
-              >
-                <Projector className="h-9 w-9 text-amber-400" />
-              </motion.div>
-              <p className="font-heading text-lg font-bold tracking-tight text-zinc-300">In attesa del master...</p>
-              <p className="text-sm text-zinc-600">Le immagini appariranno qui in tempo reale</p>
+              <Pokeball className="h-24 w-24 drop-shadow-[0_0_30px_rgba(220,38,38,0.4)] animate-shake" />
+              <div className="text-center">
+                <p className="font-pixel text-[10px] uppercase tracking-[0.3em] text-red-400">In attesa</p>
+                <p className="mt-2 font-heading text-2xl font-bold tracking-tight text-slate-200">Il Master sta scegliendo...</p>
+                <p className="mt-2 text-sm text-slate-500">Il prossimo Pokémon apparirà qui in tempo reale</p>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
