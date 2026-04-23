@@ -2,7 +2,34 @@ from fastapi import FastAPI, APIRouter, HTTPException, UploadFile, File, WebSock
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+# --- INTEGRAZIONE FRONTEND MIGLIORATA ---
 import os
+
+# Proviamo a localizzare la cartella dist in modo dinamico
+base_path = Path(__file__).resolve().parent.parent
+frontend_dist_path = base_path / "frontend" / "dist"
+
+# LOG DI DEBUG (Vedrai questo nei log di Render)
+print(f"DEBUG: Cerco il frontend in: {frontend_dist_path}")
+print(f"DEBUG: La cartella esiste? {frontend_dist_path.exists()}")
+
+if frontend_dist_path.exists():
+    app.mount("/", StaticFiles(directory=str(frontend_dist_path), html=True), name="frontend")
+    
+    @app.exception_handler(404)
+    async def fallback_to_index(request, exc):
+        return FileResponse(frontend_dist_path / "index.html")
+else:
+    # Se non la trova, creiamo una rotta di emergenza per capire cosa succede
+    @app.get("/")
+    async def debug_root():
+        files = [str(f) for f in base_path.rglob("*") if "node_modules" not in str(f)]
+        return {
+            "error": "Frontend non trovato",
+            "search_path": str(frontend_dist_path),
+            "current_dir": os.getcwd(),
+            "files_found": files[:20] # Vediamo i primi 20 file per capire la struttura
+        }
 import logging
 import random
 import string
