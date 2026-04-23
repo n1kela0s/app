@@ -5,9 +5,9 @@ from motor.motor_asyncio import AsyncIOMotorClient
 # --- INTEGRAZIONE FRONTEND MIGLIORATA ---
 import os
 
-# Proviamo a localizzare la cartella dist in modo dinamico
+# Proviamo a localizzare la cartella build  in modo dinamico
 base_path = Path(__file__).resolve().parent.parent
-frontend_dist_path = base_path / "frontend" / "dist"
+frontend_dist_path = base_path / "frontend" / "build"
 
 # LOG DI DEBUG (Vedrai questo nei log di Render)
 print(f"DEBUG: Cerco il frontend in: {frontend_dist_path}")
@@ -366,7 +366,7 @@ from fastapi.responses import FileResponse
 
 # --- INTEGRAZIONE FRONTEND ---
 # 1. Definiamo il percorso della cartella 'dist' che verrà creata dal build del frontend
-frontend_dist_path = Path(__file__).parent.parent / "frontend" / "dist"
+frontend_dist_path = Path(__file__).parent.parent / "frontend" / "build"
 
 # 2. Serviamo i file statici (JS, CSS, Immagini)
 # Importante: va messo DOPO app.include_router(api_router) così non sovrascrive le API
