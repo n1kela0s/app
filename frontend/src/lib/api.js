@@ -1,6 +1,9 @@
 import axios from "axios";
 
-export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+// Rimuove eventuali slash finali dalla variabile d'ambiente per sicurezza
+const rawUrl = process.env.REACT_APP_BACKEND_URL || window.location.origin;
+export const BACKEND_URL = rawUrl.replace(/\/$/, ""); 
+
 export const API = `${BACKEND_URL}/api`;
 
 export const api = axios.create({ baseURL: API });
