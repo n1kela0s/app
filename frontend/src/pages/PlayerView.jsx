@@ -196,7 +196,7 @@ export default function PlayerView() {
             </div>
           </div>
         ) : (
-          CATS.map((meta) => {
+          CATS.filter((meta) => meta.key !== "neutral" || byCat.neutral.length > 0).map((meta) => {
             const list = byCat[meta.key];
             const Icon = meta.icon;
             return (
