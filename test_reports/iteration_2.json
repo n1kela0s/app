@@ -1,0 +1,30 @@
+{
+  "summary": "Full backend+frontend testing of 4 new Proietta features (category categorisation, multi-pokemon field display, remove-from-field, delete-image, clear-history). Backend: 16/16 pytest cases pass (categories ally/neutral/enemy with persistence, invalid→neutral default, master-token 403 protection on all 4 mutation endpoints, remove sets active=false and keeps record, delete removes completely, clear wipes room, 404 on missing image, GET backfills category/active for legacy docs, WebSocket broadcasts image/image_removed_field/image_deleted/history_cleared with correct payloads). Frontend: complete 2-context E2E — master creates room, 3 send buttons correctly disabled until preview, send ally→field-ally-section (player receives in zone-ally instantly), send enemy→field-enemy-section/zone-enemy, send neutral→field-neutral-section/zone-neutral; remove-field-{id} removes from field but keeps 'Sconfitto' history entry and syncs to player; delete-history-{id} purges everywhere; clear-history-btn empties both sides. Zero console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/new_features.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "MasterDashboard.jsx: master WebSocket does not listen for image/image_removed_field/image_deleted/history_cleared events. If two masters share the same token (unlikely) or another client mutates, UI won't sync. Low priority.",
+    "server.py: delete_image and remove_image_from_field use image_id without validating it is a UUID → 404 is returned which is correct. OK.",
+    "MasterDashboard.jsx line ~246: closeRoom calls /rooms/{code}/close which is NOT implemented in backend (per review note, intentionally out of scope for this iteration).",
+    "MasterDashboard.jsx line ~182: upload calls /rooms/{code}/upload which is also not implemented (out of scope).",
+    "PlayerView.jsx: when history_cleared fires, player switches back to waiting-state — correct UX. No reconnect logic on WS drop (previously flagged).",
+    "Code quality: send() function in MasterDashboard is ~40 lines handling 3 modes; consider extracting per-mode helpers for maintainability."
+  ],
+  "updated_files": ["/app/backend/tests/test_new_features.py"],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100%"},
+  "test_credentials": "N/A (no auth, uses master_token from create-room response)",
+  "seed_data_creation": "Several TEST_ prefixed rooms created during backend tests; images are cleaned up via clear endpoint in the last test but rooms remain inactive (no delete-room endpoint).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend: /app/backend/tests/test_new_features.py (16 tests) + /app/backend/tests/test_proietta.py (regression from iter1). data-testids confirmed working: master-dashboard, room-code-display, pokemon-search-input, pokemon-search-btn, pokemon-preview, send-ally-btn, send-neutral-btn, send-enemy-btn, field-ally-section, field-neutral-section, field-enemy-section, field-item-{id}, remove-field-{id}, history-item-{id}, delete-history-{id}, clear-history-btn, player-view, waiting-state, zone-ally, zone-neutral, zone-enemy, zone-{cat}-card-{id}. All 4 new features work end-to-end with live WS sync.",
+  "rca of the issue": "N/A — no issues found."
+}

@@ -6,7 +6,7 @@ import pytest
 import requests
 import websockets
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://passive-image-stream.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://battle-field-control.preview.emergentagent.com").rstrip("/")
 API = f"{BASE_URL}/api"
 WS_BASE = BASE_URL.replace("http", "ws")
 

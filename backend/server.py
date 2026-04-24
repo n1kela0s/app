@@ -90,6 +90,7 @@ class SendImageRequest(BaseModel):
     url: str
     caption: str = ""
     source: str = "url"
+    category: str = "neutral"  # ally | enemy | neutral
 
 # --- 4. GESTORE CONNESSIONI WEBSOCKET ---
 class ConnectionManager:
@@ -149,7 +150,11 @@ async def get_room(code: str):
     room = await db.rooms.find_one({"code": code}, {"_id": 0, "master_token": 0})
     if not room: raise HTTPException(404, "Stanza non trovata")
     players = await db.players.find({"room_code": code}, {"_id": 0}).to_list(100)
-    images = await db.images.find({"room_code": code}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    images = await db.images.find({"room_code": code}, {"_id": 0}).sort("created_at", 1).to_list(500)
+    # Backfill default fields for legacy records
+    for img in images:
+        img.setdefault("category", "neutral")
+        img.setdefault("active", True)
     return {"room": room, "players": players, "images": images}
 
 @api_router.post("/rooms/join", response_model=JoinRoomResponse)
@@ -172,12 +177,15 @@ async def send_image(code: str, req: SendImageRequest, x_master_token: Optional[
     if not room or room["master_token"] != x_master_token: 
         raise HTTPException(403, "Accesso negato")
     
+    category = req.category if req.category in ("ally", "enemy", "neutral") else "neutral"
     image = {
         "id": str(uuid.uuid4()), 
         "room_code": code, 
         "url": req.url, 
         "caption": req.caption, 
         "source": req.source, 
+        "category": category,
+        "active": True,
         "created_at": now_iso()
     }
     
@@ -190,6 +198,49 @@ async def send_image(code: str, req: SendImageRequest, x_master_token: Optional[
         
     await manager.broadcast(code, {"type": "image", "data": image})
     return image
+
+
+@api_router.post("/rooms/{code}/images/{image_id}/remove")
+async def remove_image_from_field(code: str, image_id: str, x_master_token: Optional[str] = Header(None)):
+    """Rimuove un Pokémon dal campo (resta in cronologia come inattivo)."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    result = await db.images.update_one(
+        {"id": image_id, "room_code": code},
+        {"$set": {"active": False}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Pokémon non trovato")
+    await manager.broadcast(code, {"type": "image_removed_field", "id": image_id})
+    return {"ok": True, "id": image_id}
+
+
+@api_router.delete("/rooms/{code}/images/{image_id}")
+async def delete_image(code: str, image_id: str, x_master_token: Optional[str] = Header(None)):
+    """Elimina completamente un Pokémon (campo e cronologia)."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    result = await db.images.delete_one({"id": image_id, "room_code": code})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "Pokémon non trovato")
+    await manager.broadcast(code, {"type": "image_deleted", "id": image_id})
+    return {"ok": True, "id": image_id}
+
+
+@api_router.delete("/rooms/{code}/images")
+async def clear_history(code: str, x_master_token: Optional[str] = Header(None)):
+    """Pulisce tutta la cronologia e il campo."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    await db.images.delete_many({"room_code": code})
+    await manager.broadcast(code, {"type": "history_cleared"})
+    return {"ok": True}
 
 # --- 7. WEBSOCKET ---
 @app.websocket("/api/ws/{code}")

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Send, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles } from "lucide-react";
+import { Copy, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles, Shield, Skull, Minus, X, Trash2 } from "lucide-react";
 import axios from "axios";
 import { api, wsUrl, fileUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,18 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import Pokeball from "@/components/Pokeball";
+
+const CATEGORY_META = {
+  ally:    { label: "Alleato", short: "Alleato",    icon: Shield, accent: "emerald", bg: "from-emerald-600 to-emerald-500", hover: "hover:from-emerald-500 hover:to-emerald-400", ring: "rgba(16,185,129,0.45)" },
+  neutral: { label: "Neutro",  short: "Neutro",     icon: Minus,  accent: "amber",   bg: "from-amber-600 to-amber-500",     hover: "hover:from-amber-500 hover:to-amber-400",     ring: "rgba(251,191,36,0.45)" },
+  enemy:   { label: "Nemico",  short: "Nemico",     icon: Skull,  accent: "rose",    bg: "from-rose-700 to-rose-500",       hover: "hover:from-rose-600 hover:to-rose-400",       ring: "rgba(244,63,94,0.45)" },
+};
+
+const CATEGORY_CHIP = {
+  ally:    "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
+  neutral: "bg-amber-500/15 text-amber-300 border-amber-500/40",
+  enemy:   "bg-rose-500/15 text-rose-300 border-rose-500/40",
+};
 
 export default function MasterDashboard() {
   const { code: paramCode } = useParams();
@@ -30,7 +42,7 @@ export default function MasterDashboard() {
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightIdx, setHighlightIdx] = useState(-1);
-  const [sending, setSending] = useState(false);
+  const [sendingCat, setSendingCat] = useState(null);
   const [copied, setCopied] = useState(false);
   const wsRef = useRef(null);
 
@@ -94,11 +106,7 @@ export default function MasterDashboard() {
   // Filter suggestions
   useEffect(() => {
     const q = pokeQuery.trim().toLowerCase();
-    if (!q || pokeList.length === 0) {
-      setSuggestions([]);
-      return;
-    }
-    // Prefix match first, then substring; cap to 8
+    if (!q || pokeList.length === 0) { setSuggestions([]); return; }
     const starts = pokeList.filter((p) => p.name.startsWith(q));
     const contains = pokeList.filter((p) => !p.name.startsWith(q) && p.name.includes(q));
     setSuggestions([...starts, ...contains].slice(0, 8));
@@ -154,29 +162,21 @@ export default function MasterDashboard() {
 
   const handlePokeKeyDown = (e) => {
     if (!showSuggestions || suggestions.length === 0) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setHighlightIdx((i) => Math.min(i + 1, suggestions.length - 1));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setHighlightIdx((i) => Math.max(i - 1, 0));
-    } else if (e.key === "Enter" && highlightIdx >= 0) {
-      e.preventDefault();
-      pickSuggestion(suggestions[highlightIdx]);
-    } else if (e.key === "Escape") {
-      setShowSuggestions(false);
-    }
+    if (e.key === "ArrowDown") { e.preventDefault(); setHighlightIdx((i) => Math.min(i + 1, suggestions.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setHighlightIdx((i) => Math.max(i - 1, 0)); }
+    else if (e.key === "Enter" && highlightIdx >= 0) { e.preventDefault(); pickSuggestion(suggestions[highlightIdx]); }
+    else if (e.key === "Escape") { setShowSuggestions(false); }
   };
 
-  const send = async () => {
+  const send = async (category) => {
     if (!code || !token) return;
-    setSending(true);
+    setSendingCat(category);
     try {
       let imgUrl = url.trim();
       let source = "url";
       let finalCaption = caption;
       if (mode === "upload") {
-        if (!file) { toast.error("Seleziona un'immagine"); setSending(false); return; }
+        if (!file) { toast.error("Seleziona un'immagine"); setSendingCat(null); return; }
         const form = new FormData();
         form.append("file", file);
         const up = await api.post(`/rooms/${code}/upload`, form, {
@@ -185,27 +185,58 @@ export default function MasterDashboard() {
         imgUrl = fileUrl(up.data.storage_path);
         source = "upload";
       } else if (mode === "pokemon") {
-        if (!pokePreview) { toast.error("Cerca prima un Pokémon"); setSending(false); return; }
+        if (!pokePreview) { toast.error("Cerca prima un Pokémon"); setSendingCat(null); return; }
         imgUrl = pokePreview.url;
         source = "pokemon";
         if (!finalCaption) {
           finalCaption = `#${String(pokePreview.id).padStart(3, "0")} ${pokePreview.name} — ${pokePreview.types.toUpperCase()}`;
         }
       } else {
-        if (!imgUrl) { toast.error("Inserisci un URL"); setSending(false); return; }
+        if (!imgUrl) { toast.error("Inserisci un URL"); setSendingCat(null); return; }
       }
       const res = await api.post(
         `/rooms/${code}/images`,
-        { url: imgUrl, caption: finalCaption, source },
+        { url: imgUrl, caption: finalCaption, source, category },
         { headers: { "X-Master-Token": token } }
       );
       setImages((prev) => [...prev, res.data]);
       setUrl(""); setCaption(""); setFile(null); setPokeQuery(""); setPokePreview(null);
-      toast.success("Pokémon mostrato agli allenatori!");
+      toast.success(`Schierato come ${CATEGORY_META[category].label}!`);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Errore invio");
     } finally {
-      setSending(false);
+      setSendingCat(null);
+    }
+  };
+
+  const removeFromField = async (id) => {
+    try {
+      await api.post(`/rooms/${code}/images/${id}/remove`, {}, { headers: { "X-Master-Token": token } });
+      setImages((prev) => prev.map((i) => i.id === id ? { ...i, active: false } : i));
+      toast.success("Rimosso dal campo");
+    } catch {
+      toast.error("Errore rimozione");
+    }
+  };
+
+  const deleteImage = async (id) => {
+    try {
+      await api.delete(`/rooms/${code}/images/${id}`, { headers: { "X-Master-Token": token } });
+      setImages((prev) => prev.filter((i) => i.id !== id));
+      toast.success("Pokémon eliminato");
+    } catch {
+      toast.error("Errore eliminazione");
+    }
+  };
+
+  const clearHistory = async () => {
+    if (!window.confirm("Pulire tutta la cronologia e il campo? L'azione è irreversibile.")) return;
+    try {
+      await api.delete(`/rooms/${code}/images`, { headers: { "X-Master-Token": token } });
+      setImages([]);
+      toast.success("Cronologia pulita");
+    } catch {
+      toast.error("Errore pulizia");
     }
   };
 
@@ -229,7 +260,14 @@ export default function MasterDashboard() {
     );
   }
 
-  const lastImage = images[images.length - 1];
+  const active = images.filter((i) => i.active !== false);
+  const byCat = {
+    ally: active.filter((i) => (i.category || "neutral") === "ally"),
+    neutral: active.filter((i) => (i.category || "neutral") === "neutral"),
+    enemy: active.filter((i) => (i.category || "neutral") === "enemy"),
+  };
+
+  const canSend = mode === "pokemon" ? !!pokePreview : mode === "upload" ? !!file : !!url.trim();
 
   return (
     <div className="min-h-screen bg-slate-950 font-body text-slate-100 pokeball-pattern" data-testid="master-dashboard">
@@ -423,27 +461,88 @@ export default function MasterDashboard() {
                 <p className="mt-1 text-right text-xs text-slate-600">{caption.length}/140</p>
               </div>
 
-              <Button
-                data-testid="send-image-btn"
-                onClick={send}
-                disabled={sending}
-                className="mt-4 h-14 w-full rounded-xl bg-gradient-to-r from-red-600 to-red-500 font-heading text-lg font-black uppercase tracking-widest text-white transition-all duration-300 hover:from-red-500 hover:to-red-400 hover:shadow-[0_0_40px_rgba(220,38,38,0.5)] disabled:opacity-50"
-              >
-                <Send className="mr-3 h-5 w-5" /> {sending ? "Invio..." : "Lancia in campo!"}
-              </Button>
+              {/* Three launch buttons: Alleato / Neutro / Nemico */}
+              <div className="mt-5">
+                <p className="mb-2 font-pixel text-[9px] uppercase tracking-widest text-slate-400">Scegli lo schieramento</p>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  {["ally", "neutral", "enemy"].map((cat) => {
+                    const meta = CATEGORY_META[cat];
+                    const Icon = meta.icon;
+                    const loading = sendingCat === cat;
+                    return (
+                      <button
+                        key={cat}
+                        data-testid={`send-${cat}-btn`}
+                        onClick={() => send(cat)}
+                        disabled={!canSend || sendingCat !== null}
+                        className={`flex h-14 items-center justify-center gap-2 rounded-xl bg-gradient-to-r ${meta.bg} ${meta.hover} font-heading text-sm font-black uppercase tracking-wider text-white transition-all duration-300 disabled:cursor-not-allowed disabled:opacity-40`}
+                        style={{ boxShadow: !canSend ? "none" : `0 0 24px ${meta.ring}` }}
+                      >
+                        <Icon className="h-5 w-5" />
+                        {loading ? "Invio..." : `Lancia ${meta.label}`}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
 
+            {/* IN CAMPO - Tre sezioni */}
             <div className="rounded-2xl border-2 border-white/5 bg-slate-900/40 p-6">
-              <p className="mb-3 font-pixel text-[9px] uppercase tracking-widest text-amber-400">In campo ora</p>
-              {lastImage ? (
-                <div className="overflow-hidden rounded-xl border-2 border-red-500/20 bg-slate-950">
-                  <img src={lastImage.url} alt="last" className="max-h-[420px] w-full object-contain" />
-                  {lastImage.caption && (
-                    <p className="border-t border-red-500/20 bg-slate-950/80 px-5 py-3 font-heading text-base text-slate-100">{lastImage.caption}</p>
-                  )}
-                </div>
-              ) : (
+              <div className="mb-4 flex items-center justify-between">
+                <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">In campo ora</p>
+                <span className="text-xs text-slate-500">{active.length} attivi</span>
+              </div>
+              {active.length === 0 ? (
                 <p className="py-6 text-center text-sm text-slate-600">Nessun Pokémon in campo</p>
+              ) : (
+                <div className="space-y-5">
+                  {["ally", "neutral", "enemy"].map((cat) => {
+                    const list = byCat[cat];
+                    const meta = CATEGORY_META[cat];
+                    const Icon = meta.icon;
+                    return (
+                      <div key={cat} data-testid={`field-${cat}-section`}>
+                        <div className="mb-2 flex items-center gap-2">
+                          <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${CATEGORY_CHIP[cat]}`}>
+                            <Icon className="h-3 w-3" /> {meta.label}
+                          </span>
+                          <span className="text-[11px] text-slate-600">{list.length}</span>
+                        </div>
+                        {list.length === 0 ? (
+                          <p className="rounded-lg border border-dashed border-white/5 px-3 py-3 text-center text-[11px] text-slate-600">—</p>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
+                            <AnimatePresence>
+                              {list.map((img) => (
+                                <motion.div
+                                  key={img.id}
+                                  layout
+                                  initial={{ opacity: 0, scale: 0.9 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.85 }}
+                                  className={`group relative overflow-hidden rounded-xl border-2 bg-slate-950 ${CATEGORY_CHIP[cat].replace("text-", "").replace(/bg-[\w/-]+/, "")}`}
+                                  data-testid={`field-item-${img.id}`}
+                                >
+                                  <img src={img.url} alt={img.caption} className="h-28 w-full object-contain bg-slate-950/60" />
+                                  {img.caption && <p className="border-t border-white/5 px-2 py-1.5 text-[11px] text-slate-300 line-clamp-1">{img.caption}</p>}
+                                  <button
+                                    data-testid={`remove-field-${img.id}`}
+                                    onClick={() => removeFromField(img.id)}
+                                    title="Rimuovi dal campo"
+                                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950/90 text-rose-400 opacity-0 ring-1 ring-rose-500/40 transition-all hover:bg-rose-500/20 hover:text-rose-300 group-hover:opacity-100"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                </motion.div>
+                              ))}
+                            </AnimatePresence>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </section>
@@ -468,25 +567,60 @@ export default function MasterDashboard() {
             </div>
 
             <div className="rounded-2xl border-2 border-amber-500/20 bg-slate-900/60 p-6 backdrop-blur-md">
-              <div className="mb-3 flex items-center gap-2">
-                <History className="h-4 w-4 text-amber-400" />
-                <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">Pokédex Battaglia ({images.length})</p>
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <History className="h-4 w-4 text-amber-400" />
+                  <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">Pokédex Battaglia ({images.length})</p>
+                </div>
+                {images.length > 0 && (
+                  <button
+                    data-testid="clear-history-btn"
+                    onClick={clearHistory}
+                    title="Pulisci cronologia"
+                    className="flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/5 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-rose-300 transition-all hover:bg-rose-500/15 hover:text-rose-200"
+                  >
+                    <Trash2 className="h-3 w-3" /> Pulisci
+                  </button>
+                )}
               </div>
               <ScrollArea className="h-[380px] pr-3">
                 <div className="flex flex-col gap-3">
                   <AnimatePresence initial={false}>
-                    {[...images].reverse().map((img) => (
-                      <motion.div
-                        key={img.id}
-                        initial={{ opacity: 0, x: 10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        className="overflow-hidden rounded-xl border border-white/5 bg-slate-950/60"
-                        data-testid={`history-item-${img.id}`}
-                      >
-                        <img src={img.url} alt={img.caption} className="h-32 w-full object-cover" />
-                        {img.caption && <p className="px-3 py-2 text-xs text-slate-300 line-clamp-2">{img.caption}</p>}
-                      </motion.div>
-                    ))}
+                    {[...images].reverse().map((img) => {
+                      const cat = img.category || "neutral";
+                      const meta = CATEGORY_META[cat];
+                      const Icon = meta.icon;
+                      const isActive = img.active !== false;
+                      return (
+                        <motion.div
+                          key={img.id}
+                          initial={{ opacity: 0, x: 10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="group relative overflow-hidden rounded-xl border border-white/5 bg-slate-950/60"
+                          data-testid={`history-item-${img.id}`}
+                        >
+                          <img src={img.url} alt={img.caption} className={`h-32 w-full object-cover ${isActive ? "" : "opacity-60 grayscale"}`} />
+                          <div className="absolute left-2 top-2 flex items-center gap-1.5">
+                            <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider ${CATEGORY_CHIP[cat]}`}>
+                              <Icon className="h-2.5 w-2.5" /> {meta.short}
+                            </span>
+                            {!isActive && (
+                              <span className="rounded-full border border-slate-600 bg-slate-950/80 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-400">Sconfitto</span>
+                            )}
+                          </div>
+                          <button
+                            data-testid={`delete-history-${img.id}`}
+                            onClick={() => deleteImage(img.id)}
+                            title="Elimina dalla cronologia"
+                            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950/90 text-rose-400 opacity-0 ring-1 ring-rose-500/40 transition-all hover:bg-rose-500/20 hover:text-rose-300 group-hover:opacity-100"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                          {img.caption && <p className="px-3 py-2 text-xs text-slate-300 line-clamp-2">{img.caption}</p>}
+                        </motion.div>
+                      );
+                    })}
                   </AnimatePresence>
                   {images.length === 0 && (
                     <p className="py-6 text-center text-xs text-slate-600">Nessun Pokémon mostrato</p>
