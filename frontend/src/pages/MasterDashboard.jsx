@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles, Shield, Skull, Minus, X, Trash2 } from "lucide-react";
+import { Copy, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles, Shield, Skull, Minus, X, Trash2, Volume2 } from "lucide-react";
 import axios from "axios";
 import { api, wsUrl, fileUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -176,6 +176,13 @@ export default function MasterDashboard() {
       audio.volume = 0.55;
       audio.play().catch(() => {});
     } catch {}
+  };
+
+  const getCryFromImage = (img) => {
+    if (!img || img.source !== "pokemon") return null;
+    const m = img.url && img.url.match(/\/(\d+)\.(png|gif|webp|jpg|jpeg)(\?.*)?$/i);
+    if (!m) return null;
+    return `https://raw.githubusercontent.com/PokeAPI/cries/main/cries/pokemon/latest/${m[1]}.ogg`;
   };
 
   const send = async (category) => {
@@ -527,7 +534,9 @@ export default function MasterDashboard() {
                         ) : (
                           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">
                             <AnimatePresence>
-                              {list.map((img) => (
+                              {list.map((img) => {
+                                const cry = getCryFromImage(img);
+                                return (
                                 <motion.div
                                   key={img.id}
                                   layout
@@ -539,6 +548,16 @@ export default function MasterDashboard() {
                                 >
                                   <img src={img.url} alt={img.caption} className="h-28 w-full object-contain bg-slate-950/60" />
                                   {img.caption && <p className="border-t border-white/5 px-2 py-1.5 text-[11px] text-slate-300 line-clamp-1">{img.caption}</p>}
+                                  {cry && (
+                                    <button
+                                      data-testid={`play-cry-${img.id}`}
+                                      onClick={() => playCry(cry)}
+                                      title="Riproduci verso"
+                                      className="absolute left-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950/90 text-amber-300 ring-1 ring-amber-400/40 transition-all hover:bg-amber-500/20 hover:text-amber-200 hover:ring-amber-400/80 active:scale-95"
+                                    >
+                                      <Volume2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
                                   <button
                                     data-testid={`remove-field-${img.id}`}
                                     onClick={() => removeFromField(img.id)}
@@ -548,7 +567,8 @@ export default function MasterDashboard() {
                                     <X className="h-3.5 w-3.5" />
                                   </button>
                                 </motion.div>
-                              ))}
+                                );
+                              })}
                             </AnimatePresence>
                           </div>
                         )}
