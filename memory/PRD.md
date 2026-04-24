@@ -1,38 +1,61 @@
-# PRD — Proietta
+# Proietta / Poké Arena — PRD
 
-## Original Problem Statement
-"Costruiscimi una piattaforma utilizzabile da me e dai miei amici, in cui un utente definito master può inviare immagini a degli utenti chiamati giocatori in tempo reale. I giocatori si collegano tramite questa piattaforma e passivamente ricevono sullo schermo una o più immagini (con del testo) inviate dal master."
+## Problem statement (latest iteration)
+A parte dall'app in repository, aggiungere le seguenti features:
+1. Quando il master invia i pokemon nella stanza può decidere se lanciarli come alleati, nemici o nessuno dei due (neutri).
+2. Lo schermo del player è diviso in alleati, nemici e neutri con visione simultanea di più pokémon per sezione.
+3. Il master può rimuovere i pokémon dal campo e dalla cronologia (compreso "pulisci tutta la cronologia"), con sync live.
 
-## User Personas
-- **Master** (host): crea una stanza, carica o incolla URL di immagini, aggiunge didascalia e le proietta ai giocatori.
-- **Giocatore** (spettatore): entra tramite codice stanza + nome, riceve le immagini passivamente in tempo reale.
+## Architettura
+- Backend: FastAPI + MongoDB + WebSocket broadcast
+- Frontend: React (CRA + craco), TailwindCSS, framer-motion, sonner
+- Comunicazione real-time: /api/ws/{code} con broadcast per room
 
-## Core Requirements (static)
-- Auth semplice: stanze con codice a 6 caratteri, niente account.
-- Immagini da upload locale + URL esterno.
-- Broadcast sincrono a tutti i giocatori di una stanza.
-- Didascalia breve (max 140).
-- Storico persistente delle immagini inviate, visibile sia al master che ai giocatori.
+## Core requirements
+- Master può creare/chiudere arene e schierare pokémon con categoria (ally/neutral/enemy)
+- Player riceve aggiornamenti live e vede 3 zone orizzontali
+- Master può rimuovere dal campo (resta in cronologia come "sconfitto"), eliminare entry, svuotare tutta la cronologia
+- Nessun limite al numero di pokémon per categoria
 
-## Architecture / Stack
-- **Backend**: FastAPI + Motor (MongoDB) + WebSocket `/api/ws/{code}`.
-- **Storage**: Emergent Object Storage (`EMERGENT_LLM_KEY`) per upload file.
-- **Frontend**: React + React Router + shadcn/ui + framer-motion. Fonts: Outfit + Manrope. Theme: Cinematic Dark con accent Amber.
-- **Routes**: `/` Landing, `/join`, `/master/:code`, `/play/:code`.
+## What's been implemented
 
-## Implemented (Feb 2026)
-- Creazione stanza + master token.
-- Join stanza con validazione nome/codice.
-- Invio immagine via URL o upload multipart.
-- Broadcast real-time via WebSocket + presence count.
-- Storico con Sheet laterale per i giocatori.
-- Chiusura stanza con disconnessione broadcast.
-- UI cinematica con grain overlay, glassmorphism, animazioni Framer Motion.
+### Iter 1 (pre-esistente)
+- Landing, Join, Master dashboard (search PokéAPI, URL, upload UI), Player view single-pokemon
+- Room create/join, image send con WebSocket broadcast single-current
 
-## Backlog (priorità)
-- **P1**: Reazioni/emoji dai giocatori al master in tempo reale.
-- **P1**: Reconnect automatico WebSocket (exponential backoff).
-- **P2**: Supporto multi-immagine per singolo invio (galleria).
-- **P2**: Lock di una stanza con PIN opzionale.
-- **P2**: Esportazione storico in ZIP.
-- **P3**: Moderazione base + kick giocatori.
+### Iter 2 — 2026-04-24 (nuove features)
+- Backend (`/app/backend/server.py`):
+  - `SendImageRequest` aggiunto campo `category` (ally|neutral|enemy, default neutral)
+  - Ogni image memorizza `category` e `active: bool`
+  - `GET /api/rooms/{code}` backfilla `category=neutral` e `active=true` per record legacy
+  - `POST /api/rooms/{code}/images/{id}/remove` → set active=false (rimuovi dal campo)
+  - `DELETE /api/rooms/{code}/images/{id}` → elimina completamente
+  - `DELETE /api/rooms/{code}/images` → clear all history
+  - Broadcast WS: `image` (con category), `image_removed_field`, `image_deleted`, `history_cleared`
+  - Tutti gli endpoint di mutazione richiedono `X-Master-Token` (403 altrimenti)
+- Frontend Master (`MasterDashboard.jsx`):
+  - 3 pulsanti separati di lancio: Alleato (verde), Neutro (ambra), Nemico (rosa) con test-id `send-ally-btn|send-neutral-btn|send-enemy-btn`
+  - Sezione "In campo" divisa in 3 gruppi con chip colorato e pulsante X di rimozione per card (`remove-field-{id}`)
+  - Cronologia con chip categoria + badge "Sconfitto" se inattivo, pulsante trash per card (`delete-history-{id}`) e "Pulisci" globale (`clear-history-btn`)
+- Frontend Player (`PlayerView.jsx`):
+  - 3 sezioni orizzontali impilate: `zone-ally` sopra, `zone-neutral` centro, `zone-enemy` sotto
+  - Card multiple per sezione con layout wrap, animazioni framer-motion layout
+  - Gestione eventi WS: `image`, `image_removed_field`, `image_deleted`, `history_cleared`
+  - Stato waiting se nessun pokémon attivo
+  - Storico sheet con chip categoria + badge "Sconfitto"
+
+### Testing (iter 2)
+- Backend: 16/16 pytest cases pass (categorie, 403 protection, remove/delete/clear, backfill legacy, WS broadcasts)
+- Frontend: E2E 2-contexts pass (master + player) con live sync confermato
+- Zero console errors, zero issue aperte
+
+## Prioritized backlog / TODO
+- P1: Implementare endpoint `/rooms/{code}/close` e `/rooms/{code}/upload` che sono referenziati dal frontend ma mancanti nel backend (pre-esistenti, non bloccanti)
+- P2: Reconnect logic sul WebSocket del player in caso di disconnessione
+- P2: Master WS sync (se più master condividono token)
+- P3: Drag & drop per riordinare pokémon in campo, o per cambiare categoria al volo
+- P3: Vita/HP visuale su ogni card (barra con decremento animato)
+
+## Next Action Items
+- Attendere feedback utente per eventuali rifiniture grafiche
+- Implementare P1 (close/upload) se richiesto
