@@ -146,6 +146,7 @@ export default function MasterDashboard() {
         types,
         url: artwork,
         hp: data.stats?.find((s) => s.stat.name === "hp")?.base_stat,
+        cry: data.cries?.latest || data.cries?.legacy || null,
       });
     } catch {
       toast.error("Pokémon non trovato. Riprova con un altro nome o numero.");
@@ -168,6 +169,15 @@ export default function MasterDashboard() {
     else if (e.key === "Escape") { setShowSuggestions(false); }
   };
 
+  const playCry = (src) => {
+    if (!src) return;
+    try {
+      const audio = new Audio(src);
+      audio.volume = 0.55;
+      audio.play().catch(() => {});
+    } catch {}
+  };
+
   const send = async (category) => {
     if (!code || !token) return;
     setSendingCat(category);
@@ -175,6 +185,7 @@ export default function MasterDashboard() {
       let imgUrl = url.trim();
       let source = "url";
       let finalCaption = caption;
+      let cryToPlay = null;
       if (mode === "upload") {
         if (!file) { toast.error("Seleziona un'immagine"); setSendingCat(null); return; }
         const form = new FormData();
@@ -188,6 +199,7 @@ export default function MasterDashboard() {
         if (!pokePreview) { toast.error("Cerca prima un Pokémon"); setSendingCat(null); return; }
         imgUrl = pokePreview.url;
         source = "pokemon";
+        cryToPlay = pokePreview.cry;
         if (!finalCaption) {
           finalCaption = `#${String(pokePreview.id).padStart(3, "0")} ${pokePreview.name} — ${pokePreview.types.toUpperCase()}`;
         }
@@ -200,6 +212,7 @@ export default function MasterDashboard() {
         { headers: { "X-Master-Token": token } }
       );
       setImages((prev) => [...prev, res.data]);
+      playCry(cryToPlay);
       setUrl(""); setCaption(""); setFile(null); setPokeQuery(""); setPokePreview(null);
       toast.success(`Schierato come ${CATEGORY_META[category].label}!`);
     } catch (err) {
