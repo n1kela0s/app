@@ -207,25 +207,38 @@ async def websocket_endpoint(websocket: WebSocket, code: str, role: str = Query(
         await manager.broadcast(code, {"type": "presence_count", "players": online})
 
 # --- 8. MIDDLEWARE E ROUTER ---
-app.include_router(api_router)
+
+# IL CORS VA MESSO PRIMA DI OGNI ALTRA COSA
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True, # Aggiunto per stabilità
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- 9. INTEGRAZIONE FRONTEND (IN FONDO) ---
+# Poi includi il router delle API
+app.include_router(api_router)
+
+# --- 9. INTEGRAZIONE FRONTEND ---
+# Spostiamo il frontend alla fine di tutto
 frontend_path = Path(__file__).resolve().parent.parent / "frontend" / "build"
 
 if frontend_path.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+    # Mount delle cartelle statiche (js, css)
+    app.mount("/static", StaticFiles(directory=str(frontend_path / "static")), name="static")
     
-    @app.exception_handler(404)
-    async def fallback(request, exc):
-        if request.url.path.startswith("/api"):
+    # Gestione delle rotte frontend (SPA)
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # Se la rotta inizia con api o ws, non servire index.html (lascia gestire ai router sopra)
+        if full_path.startswith("api"):
             return JSONResponse({"detail": "Not Found"}, status_code=404)
-        return FileResponse(frontend_path / "index.html")
+        
+        index_file = frontend_path / "index.html"
+        return FileResponse(index_file)
+else:
+    logger.warning(f"Frontend non trovato in: {frontend_path}")
 
 @app.on_event("startup")
 async def startup():
