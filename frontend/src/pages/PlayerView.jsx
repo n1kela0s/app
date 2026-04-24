@@ -17,38 +17,65 @@ export default function PlayerView() {
   const [player, setPlayer] = useState(null);
   const wsRef = useRef(null);
 
-  useEffect(() => {
-    const stored = localStorage.getItem(`player_${code}`);
-    if (!stored) { navigate("/join"); return; }
-    const p = JSON.parse(stored);
-    setPlayer(p);
+ useEffect(() => {
+  const stored = localStorage.getItem(`player_${code}`);
+  if (!stored) { navigate("/join"); return; }
+  const p = JSON.parse(stored);
+  setPlayer(p);
 
-    api.get(`/rooms/${code}`).then((res) => {
-      const imgs = res.data.images || [];
-      setHistory(imgs);
-      if (imgs.length > 0) setCurrent(imgs[imgs.length - 1]);
-    }).catch(() => toast.error("Arena non disponibile"));
+  // Caricamento iniziale dello storico
+  api.get(`/rooms/${code}`).then((res) => {
+    const imgs = res.data.images || [];
+    setHistory(imgs);
+    if (imgs.length > 0) setCurrent(imgs[imgs.length - 1]);
+  }).catch(() => toast.error("Arena non disponibile"));
 
-    const ws = new WebSocket(wsUrl(code, "player", p.id));
-    wsRef.current = ws;
-    ws.onopen = () => setStatus("online");
-    ws.onmessage = (ev) => {
-      try {
-        const msg = JSON.parse(ev.data);
-        if (msg.type === "image") {
-          setCurrent(msg.data);
-          setHistory((prev) => [...prev, msg.data]);
-        } else if (msg.type === "room_closed") {
-          toast.info("L'arena è stata chiusa dal master");
-          setTimeout(() => navigate("/"), 1500);
-        }
-      } catch {}
-    };
-    ws.onclose = () => setStatus("offline");
-    ws.onerror = () => setStatus("offline");
+  // Inizializzazione WebSocket
+  const socketUrl = wsUrl(code, "player", p.id);
+  const ws = new WebSocket(socketUrl);
+  wsRef.current = ws;
 
-    return () => ws.close();
-  }, [code, navigate]);
+  ws.onopen = () => {
+    console.log("Connesso all'arena!"); // Debug
+    setStatus("online");
+  };
+
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      console.log("Messaggio ricevuto:", msg); // Debug fondamentale
+
+      if (msg.type === "image") {
+        // AGGIORNAMENTO LIVE
+        setCurrent(msg.data);
+        // Usiamo la funzione di callback per lo storico per evitare bug con gli stati precedenti
+        setHistory((prev) => [...prev, msg.data]);
+        
+        // Piccola notifica opzionale
+        toast.success("Nuovo Pokémon in campo!", { duration: 2000 });
+      } else if (msg.type === "room_closed") {
+        toast.info("L'arena è stata chiusa dal master");
+        setTimeout(() => navigate("/"), 1500);
+      }
+    } catch (err) {
+      console.error("Errore parsing messaggio:", err);
+    }
+  };
+
+  ws.onclose = (e) => {
+    console.log("WebSocket chiuso:", e.reason);
+    setStatus("offline");
+  };
+
+  ws.onerror = () => setStatus("offline");
+
+  // Cleanup: chiudiamo il socket quando il componente viene smontato
+  return () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+  };
+}, [code, navigate]);
 
   const leaveRoom = () => {
     localStorage.removeItem(`player_${code}`);
