@@ -137,6 +137,10 @@ async def create_room():
     
     room = {"id": str(uuid.uuid4()), "code": code, "master_token": str(uuid.uuid4()), "created_at": now_iso(), "active": True}
     await db.rooms.insert_one(room)
+    
+    # Rimuoviamo l'ObjectId generato da MongoDB per evitare errori di serializzazione
+    if "_id" in room: del room["_id"]
+    
     return CreateRoomResponse(room_code=code, master_token=room["master_token"])
 
 @api_router.get("/rooms/{code}")
@@ -155,15 +159,35 @@ async def join_room(req: JoinRoomRequest):
     if not room: raise HTTPException(404, "Stanza non trovata")
     player = {"id": str(uuid.uuid4()), "room_code": code, "name": name, "joined_at": now_iso(), "online": True}
     await db.players.insert_one(player)
+    
+    # Pulizia post-inserimento
+    if "_id" in player: del player["_id"]
+    
     return JoinRoomResponse(player_id=player["id"], room_code=code, name=name)
 
 @api_router.post("/rooms/{code}/images")
 async def send_image(code: str, req: SendImageRequest, x_master_token: Optional[str] = Header(None)):
     code = code.upper()
     room = await db.rooms.find_one({"code": code})
-    if not room or room["master_token"] != x_master_token: raise HTTPException(403, "Accesso negato")
-    image = {"id": str(uuid.uuid4()), "room_code": code, "url": req.url, "caption": req.caption, "source": req.source, "created_at": now_iso()}
+    if not room or room["master_token"] != x_master_token: 
+        raise HTTPException(403, "Accesso negato")
+    
+    image = {
+        "id": str(uuid.uuid4()), 
+        "room_code": code, 
+        "url": req.url, 
+        "caption": req.caption, 
+        "source": req.source, 
+        "created_at": now_iso()
+    }
+    
+    # Qui MongoDB inserisce forzatamente image["_id"] = ObjectId(...)
     await db.images.insert_one(image)
+    
+    # CANCELLIAMO l'ObjectId prima di inviarlo al broadcast e ritornarlo
+    if "_id" in image:
+        del image["_id"]
+        
     await manager.broadcast(code, {"type": "image", "data": image})
     return image
 
