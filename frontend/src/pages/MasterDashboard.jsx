@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles, Shield, Skull, Minus, X, Trash2, Volume2, ImagePlus, Eye, EyeOff, RotateCcw } from "lucide-react";
+import { Copy, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles, Shield, Skull, Minus, X, Trash2, Volume2, ImagePlus, Eye, EyeOff, RotateCcw, Zap } from "lucide-react";
 import axios from "axios";
 import { api, wsUrl, fileUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -279,6 +279,22 @@ export default function MasterDashboard() {
     }
   };
 
+  const updateInitiative = async (id, raw) => {
+    const value = raw === "" || raw === null || raw === undefined ? null : Number(raw);
+    if (value !== null && (Number.isNaN(value) || !Number.isFinite(value))) return;
+    // Optimistic update
+    setImages((prev) => prev.map((i) => i.id === id ? { ...i, initiative: value } : i));
+    try {
+      await api.patch(
+        `/rooms/${code}/images/${id}/initiative`,
+        { initiative: value },
+        { headers: { "X-Master-Token": token } }
+      );
+    } catch {
+      toast.error("Errore aggiornamento iniziativa");
+    }
+  };
+
   const sendOverlay = async (urlArg, captionArg) => {
     if (!code || !token) return;
     const u = (urlArg ?? overlayUrl).trim();
@@ -347,6 +363,16 @@ export default function MasterDashboard() {
     neutral: active.filter((i) => (i.category || "neutral") === "neutral"),
     enemy: active.filter((i) => (i.category || "neutral") === "enemy"),
   };
+
+  // Iniziativa: rank map calcolato solo quando TUTTI gli attivi hanno un valore
+  const allHaveInitiative = active.length > 0 && active.every((i) => i.initiative !== null && i.initiative !== undefined);
+  const rankMap = (() => {
+    if (!allHaveInitiative) return {};
+    const sorted = [...active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
+    const map = {};
+    sorted.forEach((img, idx) => { map[img.id] = idx + 1; });
+    return map;
+  })();
 
   const canSend = mode === "pokemon" ? !!pokePreview : mode === "upload" ? !!file : !!url.trim();
 
@@ -568,18 +594,19 @@ export default function MasterDashboard() {
               </div>
             </div>
 
-            {/* IN CAMPO - Tre sezioni */}
-            <div className="rounded-2xl border-2 border-white/5 bg-slate-900/40 p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">In campo ora</p>
-                <span className="text-xs text-slate-500">{active.length} attivi</span>
-              </div>
-              {active.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-600">Nessun Pokémon in campo</p>
-              ) : (
-                <div className="space-y-5">
-                  {["ally", "neutral", "enemy"].map((cat) => {
-                    const list = byCat[cat];
+            {/* IN CAMPO + INIZIATIVA */}
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+              <div className="rounded-2xl border-2 border-white/5 bg-slate-900/40 p-6 xl:col-span-2">
+                <div className="mb-4 flex items-center justify-between">
+                  <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">In campo ora</p>
+                  <span className="text-xs text-slate-500">{active.length} attivi {allHaveInitiative && <span className="ml-2 text-amber-300">· ordine attivo</span>}</span>
+                </div>
+                {active.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-slate-600">Nessun Pokémon in campo</p>
+                ) : (
+                  <div className="space-y-5">
+                    {["ally", "neutral", "enemy"].map((cat) => {
+                      const list = byCat[cat];
                     const meta = CATEGORY_META[cat];
                     const Icon = meta.icon;
                     return (
@@ -597,6 +624,7 @@ export default function MasterDashboard() {
                             <AnimatePresence>
                               {list.map((img) => {
                                 const cry = getCryFromImage(img);
+                                const rank = rankMap[img.id];
                                 return (
                                 <motion.div
                                   key={img.id}
@@ -619,11 +647,20 @@ export default function MasterDashboard() {
                                       <Volume2 className="h-3.5 w-3.5" />
                                     </button>
                                   )}
+                                  {rank && (
+                                    <div
+                                      data-testid={`rank-badge-${img.id}`}
+                                      title={`Iniziativa ${img.initiative} — turno #${rank}`}
+                                      className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 font-heading text-[12px] font-black text-slate-950 ring-2 ring-slate-950 shadow-[0_0_12px_rgba(251,191,36,0.6)]"
+                                    >
+                                      {rank}
+                                    </div>
+                                  )}
                                   <button
                                     data-testid={`remove-field-${img.id}`}
                                     onClick={() => removeFromField(img.id)}
                                     title="Rimuovi dal campo"
-                                    className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950/90 text-rose-400 opacity-0 ring-1 ring-rose-500/40 transition-all hover:bg-rose-500/20 hover:text-rose-300 group-hover:opacity-100"
+                                    className="absolute bottom-1.5 right-1.5 flex h-7 w-7 items-center justify-center rounded-full bg-slate-950/90 text-rose-400 opacity-0 ring-1 ring-rose-500/40 transition-all hover:bg-rose-500/20 hover:text-rose-300 group-hover:opacity-100"
                                   >
                                     <X className="h-3.5 w-3.5" />
                                   </button>
@@ -638,6 +675,78 @@ export default function MasterDashboard() {
                   })}
                 </div>
               )}
+              </div>
+
+              {/* INIZIATIVA panel */}
+              <div className="rounded-2xl border-2 border-amber-500/20 bg-slate-900/60 p-5 backdrop-blur-md" data-testid="initiative-panel">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500/20 text-amber-300">
+                    <Zap className="h-4 w-4" />
+                  </div>
+                  <div>
+                    <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-300">Iniziativa</p>
+                    <p className="text-[10px] text-slate-500">Più alto = primo turno</p>
+                  </div>
+                </div>
+                {active.length === 0 ? (
+                  <p className="py-6 text-center text-xs text-slate-600">Nessun Pokémon in campo</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {(() => {
+                      // Ordina per rank (se tutti compilati), altrimenti per ordine di ingresso
+                      const list = allHaveInitiative
+                        ? [...active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
+                        : active;
+                      return list.map((img) => {
+                        const cat = img.category || "neutral";
+                        const meta = CATEGORY_META[cat];
+                        const Icon = meta.icon;
+                        const rank = rankMap[img.id];
+                        return (
+                          <div
+                            key={img.id}
+                            data-testid={`initiative-row-${img.id}`}
+                            className={`flex items-center gap-2 rounded-lg border bg-slate-950/60 p-2 transition-all ${rank ? "border-amber-500/30" : "border-white/5"}`}
+                          >
+                            <div className="relative h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-slate-950">
+                              <img src={img.url} alt="" className="h-full w-full object-contain" />
+                              {rank && (
+                                <div className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 font-heading text-[10px] font-black text-slate-950 ring-2 ring-slate-900">
+                                  {rank}
+                                </div>
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="flex items-center gap-1 text-[10px] uppercase tracking-wider">
+                                <Icon className={`h-2.5 w-2.5 ${cat === "ally" ? "text-emerald-400" : cat === "enemy" ? "text-rose-400" : "text-amber-400"}`} />
+                                <span className="text-slate-500">{meta.short}</span>
+                              </p>
+                              <p className="truncate font-heading text-xs text-slate-200">
+                                {img.caption || "Pokémon"}
+                              </p>
+                            </div>
+                            <input
+                              data-testid={`initiative-input-${img.id}`}
+                              type="number"
+                              inputMode="numeric"
+                              value={img.initiative ?? ""}
+                              onChange={(e) => updateInitiative(img.id, e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                              placeholder="—"
+                              className="h-9 w-16 rounded-md border border-amber-500/30 bg-slate-950 text-center font-heading text-sm font-bold text-amber-200 outline-none transition-all focus:border-amber-400 focus:ring-2 focus:ring-amber-400/30 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                            />
+                          </div>
+                        );
+                      });
+                    })()}
+                    {!allHaveInitiative && (
+                      <p className="mt-1 rounded-md border border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-center text-[10px] text-amber-300/80" data-testid="initiative-incomplete">
+                        Inserisci un valore per ogni Pokémon per attivare l'ordine di turno.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* OVERLAY: invio immagine generica ai giocatori */}

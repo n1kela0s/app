@@ -96,6 +96,9 @@ class OverlayRequest(BaseModel):
     url: str
     caption: str = ""
 
+class InitiativeRequest(BaseModel):
+    initiative: Optional[int] = None  # None per resettare
+
 # --- 4. GESTORE CONNESSIONI WEBSOCKET ---
 class ConnectionManager:
     def __init__(self):
@@ -159,6 +162,7 @@ async def get_room(code: str):
     for img in images:
         img.setdefault("category", "neutral")
         img.setdefault("active", True)
+        img.setdefault("initiative", None)
     return {"room": room, "players": players, "images": images}
 
 @api_router.post("/rooms/join", response_model=JoinRoomResponse)
@@ -190,6 +194,7 @@ async def send_image(code: str, req: SendImageRequest, x_master_token: Optional[
         "source": req.source, 
         "category": category,
         "active": True,
+        "initiative": None,
         "created_at": now_iso()
     }
     
@@ -245,6 +250,29 @@ async def clear_history(code: str, x_master_token: Optional[str] = Header(None))
     await db.images.delete_many({"room_code": code})
     await manager.broadcast(code, {"type": "history_cleared"})
     return {"ok": True}
+
+
+@api_router.patch("/rooms/{code}/images/{image_id}/initiative")
+async def set_initiative(code: str, image_id: str, req: InitiativeRequest, x_master_token: Optional[str] = Header(None)):
+    """Imposta o rimuove il valore di iniziativa di un Pokémon."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    value = req.initiative
+    if value is not None:
+        try:
+            value = int(value)
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Iniziativa non valida")
+    result = await db.images.update_one(
+        {"id": image_id, "room_code": code},
+        {"$set": {"initiative": value}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Pokémon non trovato")
+    await manager.broadcast(code, {"type": "image_initiative_updated", "id": image_id, "initiative": value})
+    return {"ok": True, "id": image_id, "initiative": value}
 
 
 @api_router.post("/rooms/{code}/overlay")
@@ -328,6 +356,10 @@ else:
 @app.on_event("startup")
 async def startup():
     init_storage()
+
+@app.on_event("shutdown")
+async def shutdown():
+    client.close()
 
 @app.on_event("shutdown")
 async def shutdown():

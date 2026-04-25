@@ -78,6 +78,8 @@ export default function PlayerView() {
           setHistory((prev) => prev.map((i) => i.id === msg.id ? { ...i, active: false } : i));
         } else if (msg.type === "image_deleted") {
           setHistory((prev) => prev.filter((i) => i.id !== msg.id));
+        } else if (msg.type === "image_initiative_updated") {
+          setHistory((prev) => prev.map((i) => i.id === msg.id ? { ...i, initiative: msg.initiative } : i));
         } else if (msg.type === "history_cleared") {
           setHistory([]);
           toast.info("Il Master ha pulito la cronologia");
@@ -111,6 +113,14 @@ export default function PlayerView() {
     neutral: active.filter((i) => (i.category || "neutral") === "neutral"),
     enemy: active.filter((i) => (i.category || "neutral") === "enemy"),
   };
+  const allHaveInitiative = active.length > 0 && active.every((i) => i.initiative !== null && i.initiative !== undefined);
+  const rankMap = (() => {
+    if (!allHaveInitiative) return {};
+    const sorted = [...active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
+    const map = {};
+    sorted.forEach((img, idx) => { map[img.id] = idx + 1; });
+    return map;
+  })();
   const anyActive = active.length > 0;
 
   return (
@@ -228,7 +238,9 @@ export default function PlayerView() {
                   ) : (
                     <div className="flex flex-wrap items-stretch gap-3">
                       <AnimatePresence>
-                        {list.map((img) => (
+                        {list.map((img) => {
+                          const rank = rankMap[img.id];
+                          return (
                           <motion.div
                             key={img.id}
                             layout
@@ -242,6 +254,14 @@ export default function PlayerView() {
                             <div className="relative flex h-32 items-center justify-center bg-slate-950/80 sm:h-40">
                               <div className={`absolute inset-0 bg-gradient-to-br ${meta.glow}`} />
                               <img src={img.url} alt={img.caption} className="relative max-h-full max-w-full object-contain" />
+                              {rank && (
+                                <div
+                                  data-testid={`player-rank-${img.id}`}
+                                  className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 font-heading text-sm font-black text-slate-950 ring-2 ring-slate-950 shadow-[0_0_14px_rgba(251,191,36,0.7)]"
+                                >
+                                  {rank}
+                                </div>
+                              )}
                             </div>
                             {img.caption && (
                               <p className="border-t border-white/5 bg-slate-950/80 px-3 py-2 text-center font-heading text-[11px] font-bold tracking-tight text-slate-100 line-clamp-2 sm:text-xs">
@@ -249,7 +269,8 @@ export default function PlayerView() {
                               </p>
                             )}
                           </motion.div>
-                        ))}
+                          );
+                        })}
                       </AnimatePresence>
                     </div>
                   )}
