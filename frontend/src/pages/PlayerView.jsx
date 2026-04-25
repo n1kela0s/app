@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { History, LogOut, Shield, Minus, Skull } from "lucide-react";
+import { History, LogOut, Shield, Minus, Skull, X } from "lucide-react";
 import { api, wsUrl } from "@/lib/api";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -47,6 +47,7 @@ export default function PlayerView() {
   const [history, setHistory] = useState([]);
   const [status, setStatus] = useState("connecting");
   const [player, setPlayer] = useState(null);
+  const [overlay, setOverlay] = useState(null); // { id, url, caption }
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -80,6 +81,10 @@ export default function PlayerView() {
         } else if (msg.type === "history_cleared") {
           setHistory([]);
           toast.info("Il Master ha pulito la cronologia");
+        } else if (msg.type === "overlay_show") {
+          setOverlay(msg.data);
+        } else if (msg.type === "overlay_hide") {
+          setOverlay(null);
         } else if (msg.type === "room_closed") {
           toast.info("L'arena è stata chiusa dal master");
           setTimeout(() => navigate("/"), 1500);
@@ -254,6 +259,55 @@ export default function PlayerView() {
           })
         )}
       </main>
+
+      {/* OVERLAY broadcast immagine — copre tutto */}
+      <AnimatePresence>
+        {overlay && (
+          <motion.div
+            key={overlay.id}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md"
+            data-testid="player-overlay"
+          >
+            <button
+              data-testid="player-overlay-close"
+              onClick={() => setOverlay(null)}
+              title="Chiudi"
+              className="absolute right-5 top-5 z-10 flex h-12 w-12 items-center justify-center rounded-full border-2 border-rose-500/50 bg-slate-950/80 text-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.4)] backdrop-blur-md transition-all hover:border-rose-500 hover:bg-rose-500/20 hover:text-rose-200"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            <motion.div
+              initial={{ scale: 0.9, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+              className="flex max-h-[92vh] max-w-[94vw] flex-col items-center gap-4 px-6"
+            >
+              <img
+                src={overlay.url}
+                alt={overlay.caption || "broadcast"}
+                className="max-h-[78vh] max-w-full rounded-2xl border-2 border-fuchsia-500/30 object-contain shadow-[0_30px_120px_rgba(0,0,0,0.85)]"
+                data-testid="player-overlay-image"
+              />
+              {overlay.caption && (
+                <motion.p
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                  className="max-w-3xl rounded-xl border border-fuchsia-500/30 bg-slate-950/80 px-6 py-3 text-center font-heading text-base font-bold text-fuchsia-100 shadow-[0_0_30px_rgba(217,70,239,0.2)] sm:text-lg md:text-xl"
+                  data-testid="player-overlay-caption"
+                >
+                  {overlay.caption}
+                </motion.p>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

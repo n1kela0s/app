@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Copy, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles, Shield, Skull, Minus, X, Trash2, Volume2 } from "lucide-react";
+import { Copy, Upload, LinkIcon, Users, History, LogOut, CheckCircle2, Swords, Search, Sparkles, Shield, Skull, Minus, X, Trash2, Volume2, ImagePlus, Eye, EyeOff, RotateCcw } from "lucide-react";
 import axios from "axios";
 import { api, wsUrl, fileUrl } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,11 @@ export default function MasterDashboard() {
   const [highlightIdx, setHighlightIdx] = useState(-1);
   const [sendingCat, setSendingCat] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [overlayUrl, setOverlayUrl] = useState("");
+  const [overlayCaption, setOverlayCaption] = useState("");
+  const [overlayHistory, setOverlayHistory] = useState([]);
+  const [overlayActive, setOverlayActive] = useState(null); // { id, url, caption } currently shown
+  const [overlaySending, setOverlaySending] = useState(false);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -86,6 +91,20 @@ export default function MasterDashboard() {
     };
     return () => ws.close();
   }, [code]);
+
+  // Load overlay history from localStorage (last 5 per room)
+  useEffect(() => {
+    if (!code) return;
+    try {
+      const cached = localStorage.getItem(`overlays_${code}`);
+      if (cached) setOverlayHistory(JSON.parse(cached));
+    } catch {}
+  }, [code]);
+
+  const persistOverlayHistory = (next) => {
+    setOverlayHistory(next);
+    try { localStorage.setItem(`overlays_${code}`, JSON.stringify(next)); } catch {}
+  };
 
   // Load Pokémon names list once (for autocomplete)
   useEffect(() => {
@@ -258,6 +277,48 @@ export default function MasterDashboard() {
     } catch {
       toast.error("Errore pulizia");
     }
+  };
+
+  const sendOverlay = async (urlArg, captionArg) => {
+    if (!code || !token) return;
+    const u = (urlArg ?? overlayUrl).trim();
+    const c = captionArg !== undefined ? captionArg : overlayCaption;
+    if (!u) { toast.error("Inserisci un URL immagine"); return; }
+    setOverlaySending(true);
+    try {
+      const res = await api.post(
+        `/rooms/${code}/overlay`,
+        { url: u, caption: c },
+        { headers: { "X-Master-Token": token } }
+      );
+      setOverlayActive(res.data);
+      // update local history (last 5, dedupe by url+caption)
+      const entry = { id: res.data.id, url: u, caption: c, created_at: res.data.created_at };
+      const dedup = overlayHistory.filter((h) => !(h.url === u && (h.caption || "") === (c || "")));
+      const next = [entry, ...dedup].slice(0, 5);
+      persistOverlayHistory(next);
+      if (urlArg === undefined) { setOverlayUrl(""); setOverlayCaption(""); }
+      toast.success("Immagine mostrata ai giocatori");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Errore invio overlay");
+    } finally {
+      setOverlaySending(false);
+    }
+  };
+
+  const hideOverlay = async () => {
+    if (!code || !token) return;
+    try {
+      await api.delete(`/rooms/${code}/overlay`, { headers: { "X-Master-Token": token } });
+      setOverlayActive(null);
+      toast.success("Overlay chiuso");
+    } catch {
+      toast.error("Errore chiusura overlay");
+    }
+  };
+
+  const removeOverlayFromHistory = (id) => {
+    persistOverlayHistory(overlayHistory.filter((h) => h.id !== id));
   };
 
   const closeRoom = async () => {
@@ -575,6 +636,117 @@ export default function MasterDashboard() {
                       </div>
                     );
                   })}
+                </div>
+              )}
+            </div>
+
+            {/* OVERLAY: invio immagine generica ai giocatori */}
+            <div className="rounded-2xl border-2 border-fuchsia-500/20 bg-slate-900/60 p-6 backdrop-blur-md" data-testid="overlay-panel">
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-fuchsia-600/20 text-fuchsia-300">
+                    <ImagePlus className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <p className="font-pixel text-[9px] uppercase tracking-widest text-fuchsia-300">Broadcast Immagine</p>
+                    <h2 className="font-heading text-xl font-bold text-slate-50">Mostra un'immagine ai giocatori</h2>
+                  </div>
+                </div>
+                {overlayActive && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live
+                  </span>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <Input
+                  data-testid="overlay-url-input"
+                  value={overlayUrl}
+                  onChange={(e) => setOverlayUrl(e.target.value)}
+                  placeholder="https://.../mappa-dungeon.png"
+                  className="h-12 border-white/10 bg-slate-950/80 text-slate-50 placeholder:text-slate-600 focus-visible:border-fuchsia-500"
+                />
+                <Input
+                  data-testid="overlay-caption-input"
+                  value={overlayCaption}
+                  onChange={(e) => setOverlayCaption(e.target.value)}
+                  placeholder="Didascalia (opzionale)"
+                  maxLength={140}
+                  className="h-12 border-white/10 bg-slate-950/80 text-slate-50 placeholder:text-slate-600 focus-visible:border-fuchsia-500"
+                />
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button
+                    data-testid="overlay-send-btn"
+                    onClick={() => sendOverlay()}
+                    disabled={overlaySending || !overlayUrl.trim()}
+                    className="h-12 flex-1 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 font-heading font-black uppercase tracking-wider text-white hover:from-fuchsia-500 hover:to-pink-400 disabled:opacity-40"
+                  >
+                    <Eye className="mr-2 h-4 w-4" />
+                    {overlaySending ? "Invio..." : overlayActive ? "Sostituisci" : "Mostra ai giocatori"}
+                  </Button>
+                  {overlayActive && (
+                    <Button
+                      data-testid="overlay-hide-btn"
+                      onClick={hideOverlay}
+                      variant="outline"
+                      className="h-12 rounded-xl border-rose-500/40 bg-rose-500/5 font-heading font-bold uppercase tracking-wider text-rose-300 hover:bg-rose-500/15 hover:text-rose-200"
+                    >
+                      <EyeOff className="mr-2 h-4 w-4" /> Chiudi
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {overlayActive && (
+                <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3" data-testid="overlay-active-preview">
+                  <p className="mb-2 font-pixel text-[9px] uppercase tracking-widest text-emerald-300">Attualmente in onda</p>
+                  <div className="flex items-center gap-3">
+                    <img src={overlayActive.url} alt="" className="h-14 w-20 rounded-md object-cover ring-1 ring-emerald-500/40" />
+                    <p className="flex-1 text-xs text-slate-300 line-clamp-2">{overlayActive.caption || <span className="text-slate-600 italic">Senza didascalia</span>}</p>
+                  </div>
+                </div>
+              )}
+
+              {overlayHistory.length > 0 && (
+                <div className="mt-5">
+                  <p className="mb-2 font-pixel text-[9px] uppercase tracking-widest text-fuchsia-300">Cronologia immagini ({overlayHistory.length}/5)</p>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    {overlayHistory.map((h) => (
+                      <div
+                        key={h.id}
+                        className="group relative overflow-hidden rounded-lg border border-fuchsia-500/20 bg-slate-950/60"
+                        data-testid={`overlay-history-${h.id}`}
+                      >
+                        <button
+                          onClick={() => sendOverlay(h.url, h.caption)}
+                          title="Mostra di nuovo"
+                          className="block w-full"
+                          data-testid={`overlay-replay-${h.id}`}
+                        >
+                          <img src={h.url} alt={h.caption || "overlay"} className="h-20 w-full object-cover transition-transform group-hover:scale-105" />
+                        </button>
+                        {h.caption && <p className="px-2 py-1 text-[10px] text-slate-400 line-clamp-1">{h.caption}</p>}
+                        <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                          <button
+                            onClick={() => sendOverlay(h.url, h.caption)}
+                            title="Mostra di nuovo"
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-fuchsia-300 ring-1 ring-fuchsia-400/40 hover:bg-fuchsia-500/20"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                          </button>
+                          <button
+                            onClick={() => removeOverlayFromHistory(h.id)}
+                            title="Rimuovi dalla cronologia"
+                            data-testid={`overlay-remove-${h.id}`}
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-rose-400 ring-1 ring-rose-500/40 hover:bg-rose-500/20"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>

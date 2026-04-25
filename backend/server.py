@@ -92,6 +92,10 @@ class SendImageRequest(BaseModel):
     source: str = "url"
     category: str = "neutral"  # ally | enemy | neutral
 
+class OverlayRequest(BaseModel):
+    url: str
+    caption: str = ""
+
 # --- 4. GESTORE CONNESSIONI WEBSOCKET ---
 class ConnectionManager:
     def __init__(self):
@@ -240,6 +244,36 @@ async def clear_history(code: str, x_master_token: Optional[str] = Header(None))
         raise HTTPException(403, "Accesso negato")
     await db.images.delete_many({"room_code": code})
     await manager.broadcast(code, {"type": "history_cleared"})
+    return {"ok": True}
+
+
+@api_router.post("/rooms/{code}/overlay")
+async def show_overlay(code: str, req: OverlayRequest, x_master_token: Optional[str] = Header(None)):
+    """Mostra un'immagine overlay a tutti i giocatori (non persistita)."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    if not req.url.strip():
+        raise HTTPException(400, "URL mancante")
+    payload = {
+        "id": str(uuid.uuid4()),
+        "url": req.url.strip(),
+        "caption": req.caption,
+        "created_at": now_iso(),
+    }
+    await manager.broadcast(code, {"type": "overlay_show", "data": payload})
+    return payload
+
+
+@api_router.delete("/rooms/{code}/overlay")
+async def hide_overlay(code: str, x_master_token: Optional[str] = Header(None)):
+    """Chiude l'overlay per tutti i giocatori."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    await manager.broadcast(code, {"type": "overlay_hide"})
     return {"ok": True}
 
 # --- 7. WEBSOCKET ---
