@@ -218,13 +218,14 @@ export default function PlayerView() {
             </div>
           </div>
         ) : inTurnMode ? (
-          <div className="flex flex-1 flex-col justify-center" data-testid="player-turn-track">
+          <div className="relative flex flex-1 flex-col items-stretch justify-center" data-testid="player-turn-track">
             <TurnTrack
               ordered={orderedActive}
               activeId={turn.active_id}
               round={turn.round}
               roundEnd={turn.round_end}
               isMaster={false}
+              heroMode={true}
             />
           </div>
         ) : (

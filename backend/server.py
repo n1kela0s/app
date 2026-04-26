@@ -127,7 +127,7 @@ class ConnectionManager:
             self.rooms[room_code] = [c for c in self.rooms[room_code] if c["ws"] is not ws]
             if not self.rooms[room_code]:
                 del self.rooms[room_code]
-                self.turn_state.pop(room_code, None)
+                # NB: non rimuoviamo turn_state cache: i player che si riconnettono devono trovarlo
 
     async def broadcast(self, room_code: str, message: dict):
         conns = self.rooms.get(room_code, [])
