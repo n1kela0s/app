@@ -82,6 +82,15 @@ export default function PlayerView() {
           setHistory((prev) => prev.filter((i) => i.id !== msg.id));
         } else if (msg.type === "image_initiative_updated") {
           setHistory((prev) => prev.map((i) => i.id === msg.id ? { ...i, initiative: msg.initiative } : i));
+        } else if (msg.type === "image_turn_action_updated") {
+          setHistory((prev) => prev.map((i) => i.id === msg.id ? {
+            ...i,
+            ...(msg.actions !== undefined ? { actions: msg.actions } : {}),
+            ...(msg.evaded !== undefined ? { evaded: msg.evaded } : {}),
+            ...(msg.clashed !== undefined ? { clashed: msg.clashed } : {}),
+          } : i));
+        } else if (msg.type === "round_reset") {
+          setHistory((prev) => prev.map((i) => i.active !== false ? { ...i, actions: 0, evaded: false, clashed: false } : i));
         } else if (msg.type === "history_cleared") {
           setHistory([]);
           toast.info("Il Master ha pulito la cronologia");

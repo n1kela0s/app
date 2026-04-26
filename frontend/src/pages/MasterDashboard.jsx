@@ -91,6 +91,16 @@ export default function MasterDashboard() {
       try {
         const msg = JSON.parse(ev.data);
         if (msg.type === "presence_count") setOnlineCount(msg.players || 0);
+        else if (msg.type === "image_turn_action_updated") {
+          setImages((prev) => prev.map((i) => i.id === msg.id ? {
+            ...i,
+            ...(msg.actions !== undefined ? { actions: msg.actions } : {}),
+            ...(msg.evaded !== undefined ? { evaded: msg.evaded } : {}),
+            ...(msg.clashed !== undefined ? { clashed: msg.clashed } : {}),
+          } : i));
+        } else if (msg.type === "round_reset") {
+          setImages((prev) => prev.map((i) => i.active !== false ? { ...i, actions: 0, evaded: false, clashed: false } : i));
+        }
       } catch {}
     };
     return () => ws.close();
@@ -299,6 +309,54 @@ export default function MasterDashboard() {
     }
   };
 
+  const updateTurnAction = async (id, patch) => {
+    // optimistic update
+    setImages((prev) => prev.map((i) => i.id === id ? { ...i, ...patch } : i));
+    try {
+      await api.patch(
+        `/rooms/${code}/images/${id}/turn_action`,
+        patch,
+        { headers: { "X-Master-Token": token } }
+      );
+    } catch {
+      toast.error("Errore aggiornamento azione");
+    }
+  };
+
+  const setActionsCount = (id, n) => {
+    const value = Math.max(0, Math.min(5, n));
+    updateTurnAction(id, { actions: value });
+  };
+
+  const toggleEvaded = (img) => {
+    const newEvaded = !img.evaded;
+    const patch = { evaded: newEvaded };
+    if (newEvaded) {
+      patch.actions = Math.min(5, (img.actions || 0) + 1);
+    } else {
+      patch.actions = Math.max(0, (img.actions || 0) - 1);
+    }
+    updateTurnAction(img.id, patch);
+  };
+
+  const toggleClashed = (img) => {
+    const newClashed = !img.clashed;
+    const patch = { clashed: newClashed };
+    if (newClashed) {
+      patch.actions = Math.min(5, (img.actions || 0) + 1);
+    } else {
+      patch.actions = Math.max(0, (img.actions || 0) - 1);
+    }
+    updateTurnAction(img.id, patch);
+  };
+
+  const resetRoundActions = async () => {
+    setImages((prev) => prev.map((i) => i.active !== false ? { ...i, actions: 0, evaded: false, clashed: false } : i));
+    try {
+      await api.post(`/rooms/${code}/round/reset_actions`, {}, { headers: { "X-Master-Token": token } });
+    } catch {}
+  };
+
   const sendOverlay = async (urlArg, captionArg) => {
     if (!code || !token) return;
     const u = (urlArg ?? overlayUrl).trim();
@@ -466,6 +524,8 @@ export default function MasterDashboard() {
       setTurnActiveId(newId);
       setTurnRoundEnd(false);
       broadcastTurnState(newRound, newId, false, true);
+      // reset azioni per il nuovo round
+      resetRoundActions();
       return;
     }
     if (turnIndex < orderedActive.length - 1) {
@@ -473,7 +533,6 @@ export default function MasterDashboard() {
       setTurnActiveId(newId);
       broadcastTurnState(turnRound, newId, false, true);
     } else {
-      // last pokemon finished -> show round end
       setTurnRoundEnd(true);
       broadcastTurnState(turnRound, turnActiveId, true, true);
     }
@@ -712,6 +771,9 @@ export default function MasterDashboard() {
                   onNext={turnNext}
                   onCloseRoundEnd={turnNext}
                   onRemove={removeFromField}
+                  onActionsChange={setActionsCount}
+                  onToggleEvaded={toggleEvaded}
+                  onToggleClashed={toggleClashed}
                 />
               </div>
             )}

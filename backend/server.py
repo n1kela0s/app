@@ -99,6 +99,11 @@ class OverlayRequest(BaseModel):
 class InitiativeRequest(BaseModel):
     initiative: Optional[int] = None  # None per resettare
 
+class TurnActionUpdate(BaseModel):
+    actions: Optional[int] = None  # 0-5
+    evaded: Optional[bool] = None
+    clashed: Optional[bool] = None
+
 class TurnUpdate(BaseModel):
     round: int = 1
     active_id: Optional[str] = None
@@ -179,6 +184,9 @@ async def get_room(code: str):
         img.setdefault("category", "neutral")
         img.setdefault("active", True)
         img.setdefault("initiative", None)
+        img.setdefault("actions", 0)
+        img.setdefault("evaded", False)
+        img.setdefault("clashed", False)
     return {"room": room, "players": players, "images": images}
 
 @api_router.post("/rooms/join", response_model=JoinRoomResponse)
@@ -211,6 +219,9 @@ async def send_image(code: str, req: SendImageRequest, x_master_token: Optional[
         "category": category,
         "active": True,
         "initiative": None,
+        "actions": 0,
+        "evaded": False,
+        "clashed": False,
         "created_at": now_iso()
     }
     
@@ -289,6 +300,47 @@ async def set_initiative(code: str, image_id: str, req: InitiativeRequest, x_mas
         raise HTTPException(404, "Pokémon non trovato")
     await manager.broadcast(code, {"type": "image_initiative_updated", "id": image_id, "initiative": value})
     return {"ok": True, "id": image_id, "initiative": value}
+
+
+@api_router.patch("/rooms/{code}/images/{image_id}/turn_action")
+async def update_turn_action(code: str, image_id: str, req: TurnActionUpdate, x_master_token: Optional[str] = Header(None)):
+    """Aggiorna actions/evaded/clashed di un Pokémon nel round corrente."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    update = {}
+    if req.actions is not None:
+        update["actions"] = max(0, min(5, int(req.actions)))
+    if req.evaded is not None:
+        update["evaded"] = bool(req.evaded)
+    if req.clashed is not None:
+        update["clashed"] = bool(req.clashed)
+    if not update:
+        raise HTTPException(400, "Nessun campo da aggiornare")
+    result = await db.images.update_one(
+        {"id": image_id, "room_code": code},
+        {"$set": update}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(404, "Pokémon non trovato")
+    await manager.broadcast(code, {"type": "image_turn_action_updated", "id": image_id, **update})
+    return {"ok": True, "id": image_id, **update}
+
+
+@api_router.post("/rooms/{code}/round/reset_actions")
+async def reset_round_actions(code: str, x_master_token: Optional[str] = Header(None)):
+    """Reset di actions/evaded/clashed per tutti i Pokémon attivi (chiamato quando avanza il round)."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    await db.images.update_many(
+        {"room_code": code, "active": True},
+        {"$set": {"actions": 0, "evaded": False, "clashed": False}}
+    )
+    await manager.broadcast(code, {"type": "round_reset"})
+    return {"ok": True}
 
 
 @api_router.post("/rooms/{code}/turn")

@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, Skull, Minus, ChevronLeft, ChevronRight, X, Swords } from "lucide-react";
+import { Shield, Skull, Minus, ChevronLeft, ChevronRight, X, Swords, Wind, Crosshair } from "lucide-react";
 import Pokeball from "@/components/Pokeball";
 
 const CAT = {
@@ -17,6 +17,110 @@ function romanize(n) {
   return out;
 }
 
+const MAX_ACTIONS = 5;
+
+function ActionStrip({ img, isActive, isMaster, heroMode, onActionsChange, onToggleEvaded, onToggleClashed }) {
+  const actions = img.actions || 0;
+  const evaded = !!img.evaded;
+  const clashed = !!img.clashed;
+  const dotSize = heroMode && isActive ? "h-2.5 w-2.5" : heroMode ? "h-2 w-2" : "h-1.5 w-1.5";
+  const iconBtn = heroMode && isActive ? "h-7 w-7" : "h-6 w-6";
+  const iconSize = heroMode && isActive ? "h-3.5 w-3.5" : "h-3 w-3";
+
+  return (
+    <div className="flex flex-col items-center gap-1">
+      {/* Action dots — 5 puntini orizzontali */}
+      <div
+        className="flex items-center gap-1 rounded-full border border-amber-500/30 bg-slate-950/70 px-2 py-1 backdrop-blur-md"
+        title={`Azioni ${actions}/${MAX_ACTIONS}`}
+        data-testid={`action-dots-${img.id}`}
+      >
+        {Array.from({ length: MAX_ACTIONS }).map((_, i) => {
+          const used = i < actions;
+          const dot = (
+            <motion.span
+              key={i}
+              layout
+              animate={used ? { scale: [1, 1.25, 1] } : { scale: 1 }}
+              transition={used ? { duration: 0.4 } : {}}
+              className={`block rounded-full ${dotSize} ${
+                used
+                  ? "bg-gradient-to-br from-amber-300 to-orange-500 shadow-[0_0_6px_rgba(251,191,36,0.9)]"
+                  : "bg-slate-700 ring-1 ring-slate-600"
+              }`}
+            />
+          );
+          if (!isMaster || !onActionsChange) return dot;
+          return (
+            <button
+              key={i}
+              type="button"
+              data-testid={`action-dot-btn-${img.id}-${i}`}
+              onClick={() => {
+                // click su pallino i: imposta a i+1 se non già a quel valore, altrimenti a i (toggle decrement)
+                onActionsChange(img.id, used && actions === i + 1 ? i : i + 1);
+              }}
+              className="flex items-center justify-center transition-transform hover:scale-125 active:scale-95"
+              title={`Imposta azioni a ${i + 1}`}
+            >
+              {dot}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Evade & Clash icons */}
+      <div className="flex items-center gap-1.5">
+        <ActionIcon
+          icon={Wind}
+          used={evaded}
+          color="sky"
+          label="Evasione"
+          isMaster={isMaster}
+          onClick={() => onToggleEvaded?.(img)}
+          testId={`evade-${img.id}`}
+          btnSize={iconBtn}
+          iconSize={iconSize}
+        />
+        <ActionIcon
+          icon={Crosshair}
+          used={clashed}
+          color="rose"
+          label="Scontro"
+          isMaster={isMaster}
+          onClick={() => onToggleClashed?.(img)}
+          testId={`clash-${img.id}`}
+          btnSize={iconBtn}
+          iconSize={iconSize}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ActionIcon({ icon: Icon, used, color, label, isMaster, onClick, testId, btnSize, iconSize }) {
+  const colors = {
+    sky: { active: "border-sky-400/70 bg-sky-500/20 text-sky-200 shadow-[0_0_12px_rgba(56,189,248,0.55)]", used: "border-slate-700 bg-slate-900/60 text-slate-600" },
+    rose: { active: "border-rose-400/70 bg-rose-500/20 text-rose-200 shadow-[0_0_12px_rgba(244,63,94,0.55)]", used: "border-slate-700 bg-slate-900/60 text-slate-600" },
+  };
+  const cls = used ? colors[color].used : colors[color].active;
+  const Comp = isMaster ? "button" : "div";
+  return (
+    <Comp
+      type={isMaster ? "button" : undefined}
+      onClick={isMaster ? onClick : undefined}
+      title={used ? `${label} usata` : `${label} disponibile`}
+      data-testid={testId}
+      data-used={used}
+      className={`flex items-center justify-center rounded-full border-2 ${btnSize} ${cls} transition-all ${isMaster ? "cursor-pointer hover:scale-110 active:scale-95" : ""}`}
+    >
+      <Icon className={iconSize} />
+      {used && <span className="sr-only">usata</span>}
+    </Comp>
+  );
+}
+
+
 export default function TurnTrack({
   ordered,
   activeId,
@@ -27,6 +131,9 @@ export default function TurnTrack({
   onNext,
   onCloseRoundEnd,
   onRemove,
+  onActionsChange,    // master: (id, n) => set actions to n (0..5)
+  onToggleEvaded,     // master: (img) => toggle evaded
+  onToggleClashed,    // master: (img) => toggle clashed
   heroMode = false,   // player view: layout più drammatico, card più grandi, atmosfera arena
 }) {
   const scrollRef = useRef(null);
@@ -187,6 +294,17 @@ export default function TurnTrack({
                 >
                   {idx + 1}
                 </motion.div>
+
+                {/* Action dots + Evade/Clash icons */}
+                <ActionStrip
+                  img={img}
+                  isActive={isActive}
+                  isMaster={isMaster}
+                  heroMode={heroMode}
+                  onActionsChange={onActionsChange}
+                  onToggleEvaded={onToggleEvaded}
+                  onToggleClashed={onToggleClashed}
+                />
 
                 {/* card */}
                 <motion.div
