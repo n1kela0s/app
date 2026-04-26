@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Shield, Skull, Minus, ChevronLeft, ChevronRight, X, Swords, Wind, Crosshair } from "lucide-react";
+import { Shield, Skull, Minus, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, X, Swords, Wind, Crosshair } from "lucide-react";
 import Pokeball from "@/components/Pokeball";
 
 const CAT = {
@@ -241,6 +241,23 @@ export default function TurnTrack({
         {isMaster && (
           <div className={`flex items-center gap-2 ${heroMode ? "absolute right-0 top-0" : ""}`} data-testid="turn-controls">
             <button
+              data-testid="track-scroll-left-btn"
+              onClick={() => scrollRef.current?.scrollBy({ left: -260, behavior: "smooth" })}
+              title="Scorri a sinistra (non cambia il turno)"
+              className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/10 bg-slate-950/60 text-slate-300 transition-all hover:border-white/30 hover:bg-slate-900 hover:text-slate-100 active:scale-95"
+            >
+              <ChevronsLeft className="h-5 w-5" />
+            </button>
+            <button
+              data-testid="track-scroll-right-btn"
+              onClick={() => scrollRef.current?.scrollBy({ left: 260, behavior: "smooth" })}
+              title="Scorri a destra (non cambia il turno)"
+              className="flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/10 bg-slate-950/60 text-slate-300 transition-all hover:border-white/30 hover:bg-slate-900 hover:text-slate-100 active:scale-95"
+            >
+              <ChevronsRight className="h-5 w-5" />
+            </button>
+            <span className="mx-1 h-6 w-px bg-white/10" />
+            <button
               data-testid="turn-prev-btn"
               onClick={onPrev}
               title="Turno precedente"
@@ -263,7 +280,11 @@ export default function TurnTrack({
       {/* Horizontal track */}
       <div
         ref={scrollRef}
-        className="relative overflow-x-auto scroll-smooth pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className={`relative overflow-x-auto scroll-smooth pb-3 ${
+          isMaster
+            ? "[scrollbar-gutter:stable] [scrollbar-width:auto] [scrollbar-color:rgba(251,191,36,0.55)_rgba(15,23,42,0.6)] [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-track]:bg-slate-900/60 [&::-webkit-scrollbar-track]:my-1 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-amber-500/60 [&::-webkit-scrollbar-thumb:hover]:bg-amber-400/90"
+            : "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        }`}
       >
         <div
           className={`flex items-end pt-8 ${sizes.gap}`}
