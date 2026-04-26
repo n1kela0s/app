@@ -29,18 +29,25 @@ export default function TurnTrack({
   onRemove,        // master: rimuovi un pokemon dal campo
 }) {
   const scrollRef = useRef(null);
-  const activeRef = useRef(null);
 
-  // Auto-scroll: mantieni la card attiva al centro del track (con padding 50% ai lati)
+  // Auto-scroll: card attiva al centro
   useEffect(() => {
-    if (!scrollRef.current || !activeRef.current) return;
-    const container = scrollRef.current;
-    const card = activeRef.current;
-    const cRect = container.getBoundingClientRect();
-    const tRect = card.getBoundingClientRect();
-    const cardCenter = (tRect.left + tRect.right) / 2 - cRect.left + container.scrollLeft;
-    const target = cardCenter - cRect.width / 2;
-    container.scrollTo({ left: target, behavior: "smooth" });
+    if (!activeId) return;
+    let cancelled = false;
+    const center = () => {
+      const container = scrollRef.current;
+      if (!container || cancelled) return;
+      const card = container.querySelector('[data-active="true"]');
+      if (!card) return;
+      const target = card.offsetLeft + card.offsetWidth / 2 - container.clientWidth / 2;
+      container.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+    };
+    center();
+    const ids = [80, 250, 450, 700].map((d) => setTimeout(center, d));
+    return () => {
+      cancelled = true;
+      ids.forEach(clearTimeout);
+    };
   }, [activeId, ordered.length]);
 
   if (!ordered || ordered.length === 0) return null;
@@ -88,7 +95,10 @@ export default function TurnTrack({
         ref={scrollRef}
         className="relative overflow-x-auto scroll-smooth pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        <div className="flex items-end gap-4 pt-6 sm:gap-5" style={{ paddingInline: "50%" }}>
+        <div
+          className="flex items-end gap-4 pt-6 sm:gap-5"
+          style={{ width: "max-content", paddingInline: "50%" }}
+        >
           {ordered.map((img, idx) => {
             const cat = img.category || "neutral";
             const meta = CAT[cat];
@@ -97,7 +107,6 @@ export default function TurnTrack({
             return (
               <motion.div
                 key={img.id}
-                ref={isActive ? activeRef : null}
                 layout
                 transition={{ type: "spring", stiffness: 280, damping: 26 }}
                 className={`group/card relative flex flex-shrink-0 flex-col items-center gap-2 ${isActive ? "z-10" : ""}`}
