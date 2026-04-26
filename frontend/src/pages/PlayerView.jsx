@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import Pokeball from "@/components/Pokeball";
+import TurnTrack from "@/components/TurnTrack";
 
 const CATS = [
   {
@@ -48,6 +49,7 @@ export default function PlayerView() {
   const [status, setStatus] = useState("connecting");
   const [player, setPlayer] = useState(null);
   const [overlay, setOverlay] = useState(null); // { id, url, caption }
+  const [turn, setTurn] = useState({ active: false, round: 1, active_id: null, round_end: false });
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -87,6 +89,8 @@ export default function PlayerView() {
           setOverlay(msg.data);
         } else if (msg.type === "overlay_hide") {
           setOverlay(null);
+        } else if (msg.type === "turn_state") {
+          setTurn(msg.data);
         } else if (msg.type === "room_closed") {
           toast.info("L'arena è stata chiusa dal master");
           setTimeout(() => navigate("/"), 1500);
@@ -114,13 +118,16 @@ export default function PlayerView() {
     enemy: active.filter((i) => (i.category || "neutral") === "enemy"),
   };
   const allHaveInitiative = active.length > 0 && active.every((i) => i.initiative !== null && i.initiative !== undefined);
+  const orderedActive = allHaveInitiative
+    ? [...active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
+    : [];
   const rankMap = (() => {
     if (!allHaveInitiative) return {};
-    const sorted = [...active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
     const map = {};
-    sorted.forEach((img, idx) => { map[img.id] = idx + 1; });
+    orderedActive.forEach((img, idx) => { map[img.id] = idx + 1; });
     return map;
   })();
+  const inTurnMode = allHaveInitiative && turn.active && orderedActive.some((p) => p.id === turn.active_id);
   const anyActive = active.length > 0;
 
   return (
@@ -209,6 +216,16 @@ export default function PlayerView() {
                 <p className="mt-2 text-sm text-slate-500">I Pokémon appariranno nelle sezioni Alleati, Neutri e Nemici</p>
               </div>
             </div>
+          </div>
+        ) : inTurnMode ? (
+          <div className="flex flex-1 flex-col justify-center" data-testid="player-turn-track">
+            <TurnTrack
+              ordered={orderedActive}
+              activeId={turn.active_id}
+              round={turn.round}
+              roundEnd={turn.round_end}
+              isMaster={false}
+            />
           </div>
         ) : (
           CATS.filter((meta) => meta.key !== "neutral" || byCat.neutral.length > 0).map((meta) => {

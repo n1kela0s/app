@@ -99,19 +99,35 @@ class OverlayRequest(BaseModel):
 class InitiativeRequest(BaseModel):
     initiative: Optional[int] = None  # None per resettare
 
+class TurnUpdate(BaseModel):
+    round: int = 1
+    active_id: Optional[str] = None
+    round_end: bool = False
+    active: bool = True  # False = exit turn mode
+
 # --- 4. GESTORE CONNESSIONI WEBSOCKET ---
 class ConnectionManager:
     def __init__(self):
         self.rooms: Dict[str, List[dict]] = {}
+        self.turn_state: Dict[str, dict] = {}  # ultimo stato turno per room
 
     async def connect(self, ws: WebSocket, room_code: str, role: str, cid: str):
         await ws.accept()
         self.rooms.setdefault(room_code, []).append({"ws": ws, "role": role, "id": cid})
+        # Su connessione player, invia stato turno corrente (se presente)
+        cached = self.turn_state.get(room_code)
+        if cached:
+            try:
+                await ws.send_json({"type": "turn_state", "data": cached})
+            except Exception:
+                pass
 
     def disconnect(self, ws: WebSocket, room_code: str):
         if room_code in self.rooms:
             self.rooms[room_code] = [c for c in self.rooms[room_code] if c["ws"] is not ws]
-            if not self.rooms[room_code]: del self.rooms[room_code]
+            if not self.rooms[room_code]:
+                del self.rooms[room_code]
+                self.turn_state.pop(room_code, None)
 
     async def broadcast(self, room_code: str, message: dict):
         conns = self.rooms.get(room_code, [])
@@ -273,6 +289,28 @@ async def set_initiative(code: str, image_id: str, req: InitiativeRequest, x_mas
         raise HTTPException(404, "Pokémon non trovato")
     await manager.broadcast(code, {"type": "image_initiative_updated", "id": image_id, "initiative": value})
     return {"ok": True, "id": image_id, "initiative": value}
+
+
+@api_router.post("/rooms/{code}/turn")
+async def update_turn(code: str, req: TurnUpdate, x_master_token: Optional[str] = Header(None)):
+    """Aggiorna lo stato del turno e fa broadcast a tutti i client."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    payload = {
+        "active": req.active,
+        "round": max(1, int(req.round)),
+        "active_id": req.active_id,
+        "round_end": bool(req.round_end),
+    }
+    # Cache sul server per sync nuovi player
+    if payload["active"]:
+        manager.turn_state[code] = payload
+    else:
+        manager.turn_state.pop(code, None)
+    await manager.broadcast(code, {"type": "turn_state", "data": payload})
+    return {"ok": True, **payload}
 
 
 @api_router.post("/rooms/{code}/overlay")

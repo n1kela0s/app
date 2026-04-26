@@ -11,6 +11,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import Pokeball from "@/components/Pokeball";
+import TurnTrack from "@/components/TurnTrack";
 
 const CATEGORY_META = {
   ally:    { label: "Alleato", short: "Alleato",    icon: Shield, accent: "emerald", bg: "from-emerald-600 to-emerald-500", hover: "hover:from-emerald-500 hover:to-emerald-400", ring: "rgba(16,185,129,0.45)" },
@@ -49,6 +50,9 @@ export default function MasterDashboard() {
   const [overlayHistory, setOverlayHistory] = useState([]);
   const [overlayActive, setOverlayActive] = useState(null); // { id, url, caption } currently shown
   const [overlaySending, setOverlaySending] = useState(false);
+  const [turnRound, setTurnRound] = useState(1);
+  const [turnActiveId, setTurnActiveId] = useState(null);
+  const [turnRoundEnd, setTurnRoundEnd] = useState(false);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -348,6 +352,48 @@ export default function MasterDashboard() {
     }
   };
 
+  // Auto-initialize / validate turn state when initiatives change
+  useEffect(() => {
+    if (!code || !token) return;
+    const _active = images.filter((i) => i.active !== false);
+    const _allHave = _active.length > 0 && _active.every((i) => i.initiative !== null && i.initiative !== undefined);
+    const _ordered = _allHave
+      ? [..._active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0))
+      : [];
+    const _inTurn = _allHave && _ordered.length > 0;
+
+    const broadcast = async (round, activeId, roundEnd, isActive) => {
+      try {
+        await api.post(
+          `/rooms/${code}/turn`,
+          { round, active_id: activeId, round_end: roundEnd, active: isActive },
+          { headers: { "X-Master-Token": token } }
+        );
+      } catch {}
+    };
+
+    if (!_inTurn) {
+      if (turnActiveId !== null || turnRoundEnd) {
+        setTurnActiveId(null);
+        setTurnRound(1);
+        setTurnRoundEnd(false);
+        broadcast(1, null, false, false);
+      }
+      return;
+    }
+    const stillValid = _ordered.some((p) => p.id === turnActiveId);
+    if (!stillValid) {
+      const firstId = _ordered[0]?.id || null;
+      setTurnActiveId(firstId);
+      setTurnRoundEnd(false);
+      broadcast(turnRound, firstId, false, true);
+    } else {
+      // re-broadcast current state (in case order changed but active still valid)
+      broadcast(turnRound, turnActiveId, turnRoundEnd, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, token, images.map((i) => `${i.id}:${i.initiative}:${i.active}`).join("|")]);
+
   if (!code) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-950 text-slate-500">
@@ -366,13 +412,72 @@ export default function MasterDashboard() {
 
   // Iniziativa: rank map calcolato solo quando TUTTI gli attivi hanno un valore
   const allHaveInitiative = active.length > 0 && active.every((i) => i.initiative !== null && i.initiative !== undefined);
+  const orderedActive = (() => {
+    if (!allHaveInitiative) return [];
+    return [...active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
+  })();
   const rankMap = (() => {
     if (!allHaveInitiative) return {};
-    const sorted = [...active].sort((a, b) => (b.initiative ?? 0) - (a.initiative ?? 0));
     const map = {};
-    sorted.forEach((img, idx) => { map[img.id] = idx + 1; });
+    orderedActive.forEach((img, idx) => { map[img.id] = idx + 1; });
     return map;
   })();
+  const turnIndex = orderedActive.findIndex((p) => p.id === turnActiveId);
+  const inTurnMode = allHaveInitiative && orderedActive.length > 0;
+
+  // Broadcast turn state to all clients
+  const broadcastTurnState = async (round, activeId, roundEnd, isActive = true) => {
+    if (!code || !token) return;
+    try {
+      await api.post(
+        `/rooms/${code}/turn`,
+        { round, active_id: activeId, round_end: roundEnd, active: isActive },
+        { headers: { "X-Master-Token": token } }
+      );
+    } catch {}
+  };
+
+  const turnPrev = () => {
+    if (!inTurnMode) return;
+    if (turnRoundEnd) {
+      setTurnRoundEnd(false);
+      broadcastTurnState(turnRound, turnActiveId, false, true);
+      return;
+    }
+    if (turnIndex > 0) {
+      const newId = orderedActive[turnIndex - 1].id;
+      setTurnActiveId(newId);
+      broadcastTurnState(turnRound, newId, false, true);
+    } else if (turnRound > 1) {
+      const newRound = turnRound - 1;
+      const newId = orderedActive[orderedActive.length - 1].id;
+      setTurnRound(newRound);
+      setTurnActiveId(newId);
+      broadcastTurnState(newRound, newId, false, true);
+    }
+  };
+
+  const turnNext = () => {
+    if (!inTurnMode) return;
+    if (turnRoundEnd) {
+      const newRound = turnRound + 1;
+      const newId = orderedActive[0].id;
+      setTurnRound(newRound);
+      setTurnActiveId(newId);
+      setTurnRoundEnd(false);
+      broadcastTurnState(newRound, newId, false, true);
+      return;
+    }
+    if (turnIndex < orderedActive.length - 1) {
+      const newId = orderedActive[turnIndex + 1].id;
+      setTurnActiveId(newId);
+      broadcastTurnState(turnRound, newId, false, true);
+    } else {
+      // last pokemon finished -> show round end
+      setTurnRoundEnd(true);
+      broadcastTurnState(turnRound, turnActiveId, true, true);
+    }
+  };
 
   const canSend = mode === "pokemon" ? !!pokePreview : mode === "upload" ? !!file : !!url.trim();
 
@@ -595,8 +700,23 @@ export default function MasterDashboard() {
             </div>
 
             {/* IN CAMPO + INIZIATIVA */}
-            <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-              <div className="rounded-2xl border-2 border-white/5 bg-slate-900/40 p-6 xl:col-span-2">
+            {inTurnMode && (
+              <div className="rounded-2xl border-2 border-amber-500/30 bg-gradient-to-b from-slate-900/70 to-slate-900/40 p-5 backdrop-blur-md" data-testid="turn-track-master">
+                <TurnTrack
+                  ordered={orderedActive}
+                  activeId={turnActiveId}
+                  round={turnRound}
+                  roundEnd={turnRoundEnd}
+                  isMaster={true}
+                  onPrev={turnPrev}
+                  onNext={turnNext}
+                  onCloseRoundEnd={turnNext}
+                  onRemove={removeFromField}
+                />
+              </div>
+            )}
+            <div className={inTurnMode ? "" : "grid grid-cols-1 gap-5 xl:grid-cols-3"}>
+              <div className={`rounded-2xl border-2 border-white/5 bg-slate-900/40 p-6 xl:col-span-2 ${inTurnMode ? "hidden" : ""}`}>
                 <div className="mb-4 flex items-center justify-between">
                   <p className="font-pixel text-[9px] uppercase tracking-widest text-amber-400">In campo ora</p>
                   <span className="text-xs text-slate-500">{active.length} attivi {allHaveInitiative && <span className="ml-2 text-amber-300">· ordine attivo</span>}</span>
