@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Shield, Skull, Minus, ChevronLeft, ChevronRight, X } from "lucide-react";
 import Pokeball from "@/components/Pokeball";
@@ -27,6 +28,21 @@ export default function TurnTrack({
   onCloseRoundEnd, // master può chiudere overlay con il next
   onRemove,        // master: rimuovi un pokemon dal campo
 }) {
+  const scrollRef = useRef(null);
+  const activeRef = useRef(null);
+
+  // Auto-scroll: mantieni la card attiva al centro del track
+  useEffect(() => {
+    if (!scrollRef.current || !activeRef.current) return;
+    const container = scrollRef.current;
+    const card = activeRef.current;
+    const cRect = container.getBoundingClientRect();
+    const tRect = card.getBoundingClientRect();
+    const cardCenter = (tRect.left + tRect.right) / 2 - cRect.left + container.scrollLeft;
+    const target = cardCenter - cRect.width / 2;
+    container.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+  }, [activeId, ordered.length]);
+
   if (!ordered || ordered.length === 0) return null;
 
   return (
@@ -68,7 +84,7 @@ export default function TurnTrack({
       </div>
 
       {/* Horizontal track */}
-      <div className="relative overflow-x-auto pb-3">
+      <div ref={scrollRef} className="relative overflow-x-auto pb-3 scroll-smooth">
         <div className="flex items-end gap-4 px-2 pt-6 sm:gap-5">
           {ordered.map((img, idx) => {
             const cat = img.category || "neutral";
@@ -78,6 +94,7 @@ export default function TurnTrack({
             return (
               <motion.div
                 key={img.id}
+                ref={isActive ? activeRef : null}
                 layout
                 transition={{ type: "spring", stiffness: 280, damping: 26 }}
                 className={`group/card relative flex flex-shrink-0 flex-col items-center gap-2 ${isActive ? "z-10" : ""}`}
@@ -120,15 +137,6 @@ export default function TurnTrack({
                       </p>
                     )}
                   </div>
-                  {isActive && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      className={`absolute -top-3 left-1/2 -translate-x-1/2 rounded-full border-2 px-3 py-0.5 text-[9px] font-bold uppercase tracking-widest ${meta.chip} backdrop-blur-md`}
-                    >
-                      In turno
-                    </motion.div>
-                  )}
                   {isMaster && onRemove && (
                     <button
                       data-testid={`turn-remove-${img.id}`}
