@@ -31,7 +31,7 @@ export default function TurnTrack({
   const scrollRef = useRef(null);
   const activeRef = useRef(null);
 
-  // Auto-scroll: mantieni la card attiva al centro del track
+  // Auto-scroll: mantieni la card attiva al centro del track (con padding 50% ai lati)
   useEffect(() => {
     if (!scrollRef.current || !activeRef.current) return;
     const container = scrollRef.current;
@@ -40,7 +40,7 @@ export default function TurnTrack({
     const tRect = card.getBoundingClientRect();
     const cardCenter = (tRect.left + tRect.right) / 2 - cRect.left + container.scrollLeft;
     const target = cardCenter - cRect.width / 2;
-    container.scrollTo({ left: Math.max(0, target), behavior: "smooth" });
+    container.scrollTo({ left: target, behavior: "smooth" });
   }, [activeId, ordered.length]);
 
   if (!ordered || ordered.length === 0) return null;
@@ -83,9 +83,12 @@ export default function TurnTrack({
         )}
       </div>
 
-      {/* Horizontal track */}
-      <div ref={scrollRef} className="relative overflow-x-auto pb-3 scroll-smooth">
-        <div className="flex items-end gap-4 px-2 pt-6 sm:gap-5">
+      {/* Horizontal track — scrollbar nascosta, padding ai lati per permettere centraggio della prima/ultima card */}
+      <div
+        ref={scrollRef}
+        className="relative overflow-x-auto scroll-smooth pb-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <div className="flex items-end gap-4 pt-6 sm:gap-5" style={{ paddingInline: "50%" }}>
           {ordered.map((img, idx) => {
             const cat = img.category || "neutral";
             const meta = CAT[cat];
