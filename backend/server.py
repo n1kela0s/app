@@ -96,6 +96,28 @@ class OverlayRequest(BaseModel):
     url: str
     caption: str = ""
 
+class SceneLayer(BaseModel):
+    id: Optional[str] = None
+    url: str
+    x: float = 0.5    # 0..1 (centro sulla larghezza)
+    y: float = 0.5    # 0..1
+    w: float = 0.2    # 0..1 (frazione della larghezza scena)
+    h: float = 0.2    # 0..1
+    z: int = 0
+
+class SceneRequest(BaseModel):
+    background_url: str
+    caption: str = ""
+    layers: List[SceneLayer] = []
+
+class SceneLayerUpdate(BaseModel):
+    x: Optional[float] = None
+    y: Optional[float] = None
+    w: Optional[float] = None
+    h: Optional[float] = None
+    z: Optional[int] = None
+    url: Optional[str] = None
+
 class InitiativeRequest(BaseModel):
     initiative: Optional[int] = None  # None per resettare
 
@@ -114,18 +136,26 @@ class TurnUpdate(BaseModel):
 class ConnectionManager:
     def __init__(self):
         self.rooms: Dict[str, List[dict]] = {}
-        self.turn_state: Dict[str, dict] = {}  # ultimo stato turno per room
+        self.turn_state: Dict[str, dict] = {}
+        self.scene_state: Dict[str, dict] = {}   # scena attiva (mostrata)
+        self.last_scene: Dict[str, dict] = {}    # ultima scena mostrata (per "usa come sfondo")
 
     async def connect(self, ws: WebSocket, room_code: str, role: str, cid: str):
         await ws.accept()
         self.rooms.setdefault(room_code, []).append({"ws": ws, "role": role, "id": cid})
-        # Su connessione player, invia stato turno corrente (se presente)
+        # Su connessione, invia stato turno e scena attiva (se presenti)
         cached = self.turn_state.get(room_code)
         if cached:
-            try:
-                await ws.send_json({"type": "turn_state", "data": cached})
-            except Exception:
-                pass
+            try: await ws.send_json({"type": "turn_state", "data": cached})
+            except Exception: pass
+        scene = self.scene_state.get(room_code)
+        if scene:
+            try: await ws.send_json({"type": "scene_show", "data": scene})
+            except Exception: pass
+        last = self.last_scene.get(room_code)
+        if last:
+            try: await ws.send_json({"type": "last_scene", "data": last})
+            except Exception: pass
 
     def disconnect(self, ws: WebSocket, room_code: str):
         if room_code in self.rooms:
@@ -367,7 +397,7 @@ async def update_turn(code: str, req: TurnUpdate, x_master_token: Optional[str] 
 
 @api_router.post("/rooms/{code}/overlay")
 async def show_overlay(code: str, req: OverlayRequest, x_master_token: Optional[str] = Header(None)):
-    """Mostra un'immagine overlay a tutti i giocatori (non persistita)."""
+    """[Legacy] Mostra una singola immagine fullscreen ai giocatori (compat)."""
     code = code.upper()
     room = await db.rooms.find_one({"code": code})
     if not room or room["master_token"] != x_master_token:
@@ -376,22 +406,86 @@ async def show_overlay(code: str, req: OverlayRequest, x_master_token: Optional[
         raise HTTPException(400, "URL mancante")
     payload = {
         "id": str(uuid.uuid4()),
-        "url": req.url.strip(),
+        "background_url": req.url.strip(),
         "caption": req.caption,
+        "layers": [],
         "created_at": now_iso(),
     }
-    await manager.broadcast(code, {"type": "overlay_show", "data": payload})
+    manager.scene_state[code] = payload
+    await manager.broadcast(code, {"type": "scene_show", "data": payload})
     return payload
 
 
-@api_router.delete("/rooms/{code}/overlay")
-async def hide_overlay(code: str, x_master_token: Optional[str] = Header(None)):
-    """Chiude l'overlay per tutti i giocatori."""
+@api_router.post("/rooms/{code}/scene")
+async def show_scene(code: str, req: SceneRequest, x_master_token: Optional[str] = Header(None)):
+    """Mostra una scena complessa con sfondo + layers sovrapposte."""
     code = code.upper()
     room = await db.rooms.find_one({"code": code})
     if not room or room["master_token"] != x_master_token:
         raise HTTPException(403, "Accesso negato")
-    await manager.broadcast(code, {"type": "overlay_hide"})
+    if not req.background_url.strip():
+        raise HTTPException(400, "URL sfondo mancante")
+    layers_serialized = []
+    for layer in req.layers:
+        layers_serialized.append({
+            "id": layer.id or str(uuid.uuid4()),
+            "url": layer.url,
+            "x": float(layer.x),
+            "y": float(layer.y),
+            "w": float(layer.w),
+            "h": float(layer.h),
+            "z": int(layer.z),
+        })
+    payload = {
+        "id": str(uuid.uuid4()),
+        "background_url": req.background_url.strip(),
+        "caption": req.caption,
+        "layers": layers_serialized,
+        "created_at": now_iso(),
+    }
+    manager.scene_state[code] = payload
+    await manager.broadcast(code, {"type": "scene_show", "data": payload})
+    return payload
+
+
+@api_router.patch("/rooms/{code}/scene/layers/{layer_id}")
+async def update_scene_layer(code: str, layer_id: str, req: SceneLayerUpdate, x_master_token: Optional[str] = Header(None)):
+    """Aggiorna posizione/dimensione/url di un layer della scena attiva (drag/resize live)."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    scene = manager.scene_state.get(code)
+    if not scene:
+        raise HTTPException(404, "Nessuna scena attiva")
+    update = {}
+    for field in ("x", "y", "w", "h", "z", "url"):
+        val = getattr(req, field)
+        if val is not None:
+            update[field] = val
+    found = False
+    for layer in scene.get("layers", []):
+        if layer.get("id") == layer_id:
+            layer.update(update)
+            found = True
+            break
+    if not found:
+        raise HTTPException(404, "Layer non trovato")
+    await manager.broadcast(code, {"type": "scene_layer_update", "id": layer_id, **update})
+    return {"ok": True, "id": layer_id, **update}
+
+
+@api_router.delete("/rooms/{code}/overlay")
+async def hide_overlay(code: str, x_master_token: Optional[str] = Header(None)):
+    """Chiude la scena/overlay per tutti i giocatori (rimane in cache come 'last_scene')."""
+    code = code.upper()
+    room = await db.rooms.find_one({"code": code})
+    if not room or room["master_token"] != x_master_token:
+        raise HTTPException(403, "Accesso negato")
+    last = manager.scene_state.pop(code, None)
+    if last:
+        manager.last_scene[code] = last
+    await manager.broadcast(code, {"type": "scene_hide"})
     return {"ok": True}
 
 # --- 7. WEBSOCKET ---

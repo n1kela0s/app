@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { History, LogOut, Shield, Minus, Skull, X } from "lucide-react";
+import { History, LogOut, Shield, Minus, Skull, X, Image as ImageIcon } from "lucide-react";
 import { api, wsUrl } from "@/lib/api";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import Pokeball from "@/components/Pokeball";
 import TurnTrack from "@/components/TurnTrack";
+import SceneViewer from "@/components/SceneViewer";
 
 const CATS = [
   {
@@ -48,7 +49,9 @@ export default function PlayerView() {
   const [history, setHistory] = useState([]);
   const [status, setStatus] = useState("connecting");
   const [player, setPlayer] = useState(null);
-  const [overlay, setOverlay] = useState(null); // { id, url, caption }
+  const [overlay, setOverlay] = useState(null); // scena attiva mostrata fullscreen
+  const [lastScene, setLastScene] = useState(null); // ultima scena chiusa (per "usa come sfondo")
+  const [useSceneAsBg, setUseSceneAsBg] = useState(false);
   const [turn, setTurn] = useState({ active: false, round: 1, active_id: null, round_end: false });
   const wsRef = useRef(null);
 
@@ -95,9 +98,19 @@ export default function PlayerView() {
           setHistory([]);
           toast.info("Il Master ha pulito la cronologia");
         } else if (msg.type === "overlay_show") {
+          // legacy compat
+          setOverlay({ id: msg.data.id, background_url: msg.data.url, caption: msg.data.caption, layers: [] });
+        } else if (msg.type === "overlay_hide" || msg.type === "scene_hide") {
+          setOverlay((prev) => { if (prev) setLastScene(prev); return null; });
+        } else if (msg.type === "scene_show") {
           setOverlay(msg.data);
-        } else if (msg.type === "overlay_hide") {
-          setOverlay(null);
+        } else if (msg.type === "scene_layer_update") {
+          setOverlay((prev) => prev ? {
+            ...prev,
+            layers: (prev.layers || []).map((l) => l.id === msg.id ? { ...l, ...Object.fromEntries(Object.entries(msg).filter(([k]) => ["x","y","w","h","z","url"].includes(k))) } : l),
+          } : prev);
+        } else if (msg.type === "last_scene") {
+          setLastScene(msg.data);
         } else if (msg.type === "turn_state") {
           setTurn(msg.data);
         } else if (msg.type === "room_closed") {
@@ -154,6 +167,21 @@ export default function PlayerView() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {lastScene && (
+            <button
+              data-testid="toggle-scene-bg-btn"
+              onClick={() => setUseSceneAsBg((v) => !v)}
+              title={useSceneAsBg ? "Sfondo scena attivo — disattiva" : "Usa l'ultima scena come sfondo battaglia"}
+              data-active={useSceneAsBg}
+              className={`flex h-11 w-11 items-center justify-center rounded-full border-2 backdrop-blur-md transition-all ${
+                useSceneAsBg
+                  ? "border-fuchsia-400 bg-fuchsia-500/20 text-fuchsia-200 shadow-[0_0_18px_rgba(217,70,239,0.5)]"
+                  : "border-fuchsia-500/30 bg-slate-950/70 text-fuchsia-400 hover:border-fuchsia-500/80 hover:bg-fuchsia-500/10"
+              }`}
+            >
+              <ImageIcon className="h-4 w-4" />
+            </button>
+          )}
           <Sheet>
             <SheetTrigger asChild>
               <button
@@ -308,7 +336,15 @@ export default function PlayerView() {
         )}
       </main>
 
-      {/* OVERLAY broadcast immagine — copre tutto */}
+      {/* SCENA come SFONDO della battaglia (toggle) */}
+      {useSceneAsBg && lastScene && (
+        <div className="pointer-events-none fixed inset-0 z-0">
+          <SceneViewer scene={lastScene} subdued stageHeight="100vh" className="h-full" />
+          <div className="absolute inset-0 bg-slate-950/70" />
+        </div>
+      )}
+
+      {/* OVERLAY scena fullscreen */}
       <AnimatePresence>
         {overlay && (
           <motion.div
@@ -317,12 +353,12 @@ export default function PlayerView() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.35 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/95 backdrop-blur-md"
+            className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-slate-950/95 backdrop-blur-md"
             data-testid="player-overlay"
           >
             <button
               data-testid="player-overlay-close"
-              onClick={() => setOverlay(null)}
+              onClick={() => setOverlay((prev) => { if (prev) setLastScene(prev); return null; })}
               title="Chiudi"
               className="absolute right-5 top-5 z-10 flex h-12 w-12 items-center justify-center rounded-full border-2 border-rose-500/50 bg-slate-950/80 text-rose-300 shadow-[0_0_30px_rgba(244,63,94,0.4)] backdrop-blur-md transition-all hover:border-rose-500 hover:bg-rose-500/20 hover:text-rose-200"
             >
@@ -333,14 +369,11 @@ export default function PlayerView() {
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-              className="flex max-h-[92vh] max-w-[94vw] flex-col items-center gap-4 px-6"
+              className="flex max-h-[92vh] w-full max-w-6xl flex-col items-center gap-4 px-4 sm:px-6"
             >
-              <img
-                src={overlay.url}
-                alt={overlay.caption || "broadcast"}
-                className="max-h-[78vh] max-w-full rounded-2xl border-2 border-fuchsia-500/30 object-contain shadow-[0_30px_120px_rgba(0,0,0,0.85)]"
-                data-testid="player-overlay-image"
-              />
+              <div className="w-full overflow-hidden rounded-2xl border-2 border-fuchsia-500/30 shadow-[0_30px_120px_rgba(0,0,0,0.85)]" data-testid="player-scene-stage">
+                <SceneViewer scene={overlay} stageHeight="min(78vh, 720px)" />
+              </div>
               {overlay.caption && (
                 <motion.p
                   initial={{ opacity: 0, y: 10 }}

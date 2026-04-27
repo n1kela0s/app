@@ -12,6 +12,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import Pokeball from "@/components/Pokeball";
 import TurnTrack from "@/components/TurnTrack";
+import SceneEditor from "@/components/SceneEditor";
 
 const CATEGORY_META = {
   ally:    { label: "Alleato", short: "Alleato",    icon: Shield, accent: "emerald", bg: "from-emerald-600 to-emerald-500", hover: "hover:from-emerald-500 hover:to-emerald-400", ring: "rgba(16,185,129,0.45)" },
@@ -45,11 +46,12 @@ export default function MasterDashboard() {
   const [highlightIdx, setHighlightIdx] = useState(-1);
   const [sendingCat, setSendingCat] = useState(null);
   const [copied, setCopied] = useState(false);
-  const [overlayUrl, setOverlayUrl] = useState("");
-  const [overlayCaption, setOverlayCaption] = useState("");
-  const [overlayHistory, setOverlayHistory] = useState([]);
-  const [overlayActive, setOverlayActive] = useState(null); // { id, url, caption } currently shown
   const [overlaySending, setOverlaySending] = useState(false);
+  const [sceneDraft, setSceneDraft] = useState({ background_url: "", caption: "", layers: [] });
+  const [sceneHistory, setSceneHistory] = useState([]);
+  const [sceneActive, setSceneActive] = useState(null);
+  const [selectedLayerId, setSelectedLayerId] = useState(null);
+  const layerThrottleRef = useRef({});
   const [turnRound, setTurnRound] = useState(1);
   const [turnActiveId, setTurnActiveId] = useState(null);
   const [turnRoundEnd, setTurnRoundEnd] = useState(false);
@@ -106,18 +108,18 @@ export default function MasterDashboard() {
     return () => ws.close();
   }, [code]);
 
-  // Load overlay history from localStorage (last 5 per room)
+  // Load scene history from localStorage (last 5 per room)
   useEffect(() => {
     if (!code) return;
     try {
-      const cached = localStorage.getItem(`overlays_${code}`);
-      if (cached) setOverlayHistory(JSON.parse(cached));
+      const cached = localStorage.getItem(`scenes_${code}`);
+      if (cached) setSceneHistory(JSON.parse(cached));
     } catch {}
   }, [code]);
 
-  const persistOverlayHistory = (next) => {
-    setOverlayHistory(next);
-    try { localStorage.setItem(`overlays_${code}`, JSON.stringify(next)); } catch {}
+  const persistSceneHistory = (next) => {
+    setSceneHistory(next);
+    try { localStorage.setItem(`scenes_${code}`, JSON.stringify(next)); } catch {}
   };
 
   // Load Pokémon names list once (for autocomplete)
@@ -357,46 +359,90 @@ export default function MasterDashboard() {
     } catch {}
   };
 
-  const sendOverlay = async (urlArg, captionArg) => {
+  const showScene = async (overrideScene) => {
     if (!code || !token) return;
-    const u = (urlArg ?? overlayUrl).trim();
-    const c = captionArg !== undefined ? captionArg : overlayCaption;
-    if (!u) { toast.error("Inserisci un URL immagine"); return; }
+    const sceneToSend = overrideScene || sceneDraft;
+    const bg = (sceneToSend.background_url || "").trim();
+    if (!bg) { toast.error("Inserisci un URL di sfondo"); return; }
     setOverlaySending(true);
     try {
       const res = await api.post(
-        `/rooms/${code}/overlay`,
-        { url: u, caption: c },
+        `/rooms/${code}/scene`,
+        {
+          background_url: bg,
+          caption: sceneToSend.caption || "",
+          layers: (sceneToSend.layers || []).map((l) => ({
+            id: l.id,
+            url: l.url,
+            x: l.x, y: l.y, w: l.w, h: l.h, z: l.z || 0,
+          })),
+        },
         { headers: { "X-Master-Token": token } }
       );
-      setOverlayActive(res.data);
-      // update local history (last 5, dedupe by url+caption)
-      const entry = { id: res.data.id, url: u, caption: c, created_at: res.data.created_at };
-      const dedup = overlayHistory.filter((h) => !(h.url === u && (h.caption || "") === (c || "")));
+      setSceneActive(res.data);
+      // Sync the IDs returned by the server back into draft (so future PATCH layer works)
+      setSceneDraft((d) => ({ ...d, layers: res.data.layers }));
+      // Update history (last 5, dedupe by background+caption)
+      const entry = { ...res.data };
+      const dedup = sceneHistory.filter((h) => !(h.background_url === bg && (h.caption || "") === (entry.caption || "")));
       const next = [entry, ...dedup].slice(0, 5);
-      persistOverlayHistory(next);
-      if (urlArg === undefined) { setOverlayUrl(""); setOverlayCaption(""); }
-      toast.success("Immagine mostrata ai giocatori");
+      persistSceneHistory(next);
+      toast.success("Scena mostrata ai giocatori");
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Errore invio overlay");
+      toast.error(err?.response?.data?.detail || "Errore invio scena");
     } finally {
       setOverlaySending(false);
     }
   };
 
-  const hideOverlay = async () => {
+  const hideScene = async () => {
     if (!code || !token) return;
     try {
       await api.delete(`/rooms/${code}/overlay`, { headers: { "X-Master-Token": token } });
-      setOverlayActive(null);
-      toast.success("Overlay chiuso");
+      setSceneActive(null);
+      toast.success("Scena chiusa");
     } catch {
-      toast.error("Errore chiusura overlay");
+      toast.error("Errore chiusura scena");
     }
   };
 
-  const removeOverlayFromHistory = (id) => {
-    persistOverlayHistory(overlayHistory.filter((h) => h.id !== id));
+  const removeSceneFromHistory = (id) => {
+    persistSceneHistory(sceneHistory.filter((h) => h.id !== id));
+  };
+
+  // Live PATCH del layer: ottimistico locale + throttle al server (40ms)
+  const patchLayer = (layerId, patch) => {
+    // optimistic update
+    setSceneDraft((d) => ({
+      ...d,
+      layers: (d.layers || []).map((l) => l.id === layerId ? { ...l, ...patch } : l),
+    }));
+    if (!sceneActive) return; // se non è in onda, niente broadcast
+    const now = Date.now();
+    const last = layerThrottleRef.current[layerId] || 0;
+    layerThrottleRef.current[layerId] = now;
+    const send = async () => {
+      try {
+        await api.patch(
+          `/rooms/${code}/scene/layers/${layerId}`,
+          patch,
+          { headers: { "X-Master-Token": token } }
+        );
+      } catch {}
+    };
+    if (now - last > 40) {
+      send();
+    } else {
+      // dopo 60ms invia comunque l'ultimo valore
+      clearTimeout(layerThrottleRef.current[`${layerId}_t`]);
+      layerThrottleRef.current[`${layerId}_t`] = setTimeout(send, 80);
+    }
+  };
+
+  const handleSceneChange = (next) => {
+    setSceneDraft(next);
+    // Se la scena è attiva e il layer esiste già lato server, fai PATCH live invece di un full re-broadcast
+    // (qui lasciamo il PATCH al chiamante drag/resize tramite SceneViewer.editable)
   };
 
   const closeRoom = async () => {
@@ -943,98 +989,94 @@ export default function MasterDashboard() {
                     <h2 className="font-heading text-xl font-bold text-slate-50">Mostra un'immagine ai giocatori</h2>
                   </div>
                 </div>
-                {overlayActive && (
+                {sceneActive && (
                   <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-emerald-300">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" /> Live
                   </span>
                 )}
               </div>
 
-              <div className="space-y-3">
-                <Input
-                  data-testid="overlay-url-input"
-                  value={overlayUrl}
-                  onChange={(e) => setOverlayUrl(e.target.value)}
-                  placeholder="https://.../mappa-dungeon.png"
-                  className="h-12 border-white/10 bg-slate-950/80 text-slate-50 placeholder:text-slate-600 focus-visible:border-fuchsia-500"
-                />
-                <Input
-                  data-testid="overlay-caption-input"
-                  value={overlayCaption}
-                  onChange={(e) => setOverlayCaption(e.target.value)}
-                  placeholder="Didascalia (opzionale)"
-                  maxLength={140}
-                  className="h-12 border-white/10 bg-slate-950/80 text-slate-50 placeholder:text-slate-600 focus-visible:border-fuchsia-500"
-                />
-                <div className="flex flex-col gap-2 sm:flex-row">
+              <SceneEditor
+                scene={sceneDraft}
+                onChange={(next) => {
+                  setSceneDraft(next);
+                  // Se la scena è attiva, broadcast PATCH live per ogni layer cambiato
+                  if (sceneActive) {
+                    const before = sceneActive.layers || [];
+                    const after = next.layers || [];
+                    after.forEach((nl) => {
+                      const ol = before.find((o) => o.id === nl.id);
+                      if (!ol) return;
+                      const patch = {};
+                      ["x", "y", "w", "h", "z", "url"].forEach((k) => {
+                        if (ol[k] !== nl[k]) patch[k] = nl[k];
+                      });
+                      if (Object.keys(patch).length > 0) {
+                        patchLayer(nl.id, patch);
+                      }
+                    });
+                    // Aggiorna anche sceneActive per il prossimo confronto
+                    setSceneActive({ ...sceneActive, layers: after });
+                  }
+                }}
+                selectedLayerId={selectedLayerId}
+                onSelectLayer={setSelectedLayerId}
+              />
+
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <Button
+                  data-testid="scene-show-btn"
+                  onClick={() => showScene()}
+                  disabled={overlaySending || !sceneDraft.background_url?.trim()}
+                  className="h-12 flex-1 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 font-heading font-black uppercase tracking-wider text-white hover:from-fuchsia-500 hover:to-pink-400 disabled:opacity-40"
+                >
+                  <Eye className="mr-2 h-4 w-4" />
+                  {overlaySending ? "Invio..." : sceneActive ? "Aggiorna scena" : "Mostra ai giocatori"}
+                </Button>
+                {sceneActive && (
                   <Button
-                    data-testid="overlay-send-btn"
-                    onClick={() => sendOverlay()}
-                    disabled={overlaySending || !overlayUrl.trim()}
-                    className="h-12 flex-1 rounded-xl bg-gradient-to-r from-fuchsia-600 to-pink-500 font-heading font-black uppercase tracking-wider text-white hover:from-fuchsia-500 hover:to-pink-400 disabled:opacity-40"
+                    data-testid="scene-hide-btn"
+                    onClick={hideScene}
+                    variant="outline"
+                    className="h-12 rounded-xl border-rose-500/40 bg-rose-500/5 font-heading font-bold uppercase tracking-wider text-rose-300 hover:bg-rose-500/15 hover:text-rose-200"
                   >
-                    <Eye className="mr-2 h-4 w-4" />
-                    {overlaySending ? "Invio..." : overlayActive ? "Sostituisci" : "Mostra ai giocatori"}
+                    <EyeOff className="mr-2 h-4 w-4" /> Chiudi
                   </Button>
-                  {overlayActive && (
-                    <Button
-                      data-testid="overlay-hide-btn"
-                      onClick={hideOverlay}
-                      variant="outline"
-                      className="h-12 rounded-xl border-rose-500/40 bg-rose-500/5 font-heading font-bold uppercase tracking-wider text-rose-300 hover:bg-rose-500/15 hover:text-rose-200"
-                    >
-                      <EyeOff className="mr-2 h-4 w-4" /> Chiudi
-                    </Button>
-                  )}
-                </div>
+                )}
               </div>
 
-              {overlayActive && (
-                <div className="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3" data-testid="overlay-active-preview">
-                  <p className="mb-2 font-pixel text-[9px] uppercase tracking-widest text-emerald-300">Attualmente in onda</p>
-                  <div className="flex items-center gap-3">
-                    <img src={overlayActive.url} alt="" className="h-14 w-20 rounded-md object-cover ring-1 ring-emerald-500/40" />
-                    <p className="flex-1 text-xs text-slate-300 line-clamp-2">{overlayActive.caption || <span className="text-slate-600 italic">Senza didascalia</span>}</p>
-                  </div>
-                </div>
-              )}
-
-              {overlayHistory.length > 0 && (
+              {sceneHistory.length > 0 && (
                 <div className="mt-5">
-                  <p className="mb-2 font-pixel text-[9px] uppercase tracking-widest text-fuchsia-300">Cronologia immagini ({overlayHistory.length}/5)</p>
+                  <p className="mb-2 font-pixel text-[9px] uppercase tracking-widest text-fuchsia-300">Cronologia scene ({sceneHistory.length}/5)</p>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                    {overlayHistory.map((h) => (
+                    {sceneHistory.map((h) => (
                       <div
                         key={h.id}
                         className="group relative overflow-hidden rounded-lg border border-fuchsia-500/20 bg-slate-950/60"
-                        data-testid={`overlay-history-${h.id}`}
+                        data-testid={`scene-history-${h.id}`}
                       >
                         <button
-                          onClick={() => sendOverlay(h.url, h.caption)}
-                          title="Mostra di nuovo"
+                          onClick={() => { setSceneDraft({ background_url: h.background_url, caption: h.caption || "", layers: (h.layers || []).map((l) => ({ ...l })) }); showScene(h); }}
+                          title="Carica e mostra"
                           className="block w-full"
-                          data-testid={`overlay-replay-${h.id}`}
+                          data-testid={`scene-replay-${h.id}`}
                         >
-                          <img src={h.url} alt={h.caption || "overlay"} className="h-20 w-full object-cover transition-transform group-hover:scale-105" />
+                          <img src={h.background_url} alt={h.caption || "scene"} className="h-20 w-full object-cover transition-transform group-hover:scale-105" />
+                          {(h.layers || []).length > 0 && (
+                            <span className="absolute left-1 top-1 rounded-full bg-fuchsia-500/80 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-slate-950">
+                              +{h.layers.length}
+                            </span>
+                          )}
                         </button>
                         {h.caption && <p className="px-2 py-1 text-[10px] text-slate-400 line-clamp-1">{h.caption}</p>}
-                        <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                          <button
-                            onClick={() => sendOverlay(h.url, h.caption)}
-                            title="Mostra di nuovo"
-                            className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-fuchsia-300 ring-1 ring-fuchsia-400/40 hover:bg-fuchsia-500/20"
-                          >
-                            <RotateCcw className="h-3 w-3" />
-                          </button>
-                          <button
-                            onClick={() => removeOverlayFromHistory(h.id)}
-                            title="Rimuovi dalla cronologia"
-                            data-testid={`overlay-remove-${h.id}`}
-                            className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-rose-400 ring-1 ring-rose-500/40 hover:bg-rose-500/20"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
+                        <button
+                          onClick={() => removeSceneFromHistory(h.id)}
+                          title="Rimuovi"
+                          data-testid={`scene-remove-${h.id}`}
+                          className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-slate-950/90 text-rose-400 opacity-0 ring-1 ring-rose-500/40 transition-opacity hover:bg-rose-500/20 group-hover:opacity-100"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
                       </div>
                     ))}
                   </div>
